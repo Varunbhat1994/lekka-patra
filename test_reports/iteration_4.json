@@ -1,0 +1,31 @@
+{
+  "summary": "Iteration 4: Verified Mark Settled logic fix + UI overflow fix (English & Kannada) + NEW Undo Settle feature end-to-end. Backend pytest 6/6 passed (ledger before settle, settle zeroes pending, undo reverts pending, 404 non-existent, 401 no-auth, cleanup). Frontend @420px: OTP+profile flow → workers add → attendance present → ledger add advance → Mark Settled → pending goes 200→0 and Undo button appears → Undo Settle → pending reverts to 200 and Undo disappears. No horizontal overflow on ledger row card in EN or KN. Kannada 'ಇತ್ಯರ್ಥ ಎಂದು ಗುರುತಿಸಿ' button fully rendered (span 138px within 344px button, no truncation). All 4 Kannada stat labels ('ಕೆಲಸದ ದಿನಗಳು','ಒಟ್ಟು ಸಂಬಳ','ನಿವ್ವಳ ಮುಂಗಡ','ಬಾಕಿ') fit within 62px stat boxes with break-words wrapping and no ellipsis.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Ledger + all Dialogs", "issues": ["React a11y console warning persists: 'Missing Description or aria-describedby for DialogContent' — non-blocking, pre-existing since iteration_2."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration4.py",
+    "/app/test_reports/pytest/pytest_iter4.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Backend DELETE /api/settlements/{sid} correctly returns 404 for non-existent and 401 without auth. compute_worker_ledger correctly excludes deleted settlement so pending reverts on subsequent GET.",
+    "Ledger.jsx Undo button only exposes the FIRST settlement (l.settlements[0]) — sorted by up_to_date desc in backend list_settlements which is good; but note if user has multiple stacked settlements only latest can be undone from UI (acceptable per spec 'undo last').",
+    "Consider adding a confirmation UI that shows the exact amount being reversed on toast success (currently just 'Settlement reversed'). Minor UX polish.",
+    "N+1 ledger fetch pattern in Ledger.jsx loadAll() (Promise.all of GET /ledger per worker) — fine for tens of workers, but for 100+ farms consider a batch endpoint.",
+    "server.py still ~1300 lines — split into modules recommended (pre-existing feedback from iteration_3, not blocking)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration4.py", "/app/test_reports/iteration_4.json"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Ephemeral OTP dev flow — dev_otp returned by /api/auth/otp/send in dev mode.",
+  "seed_data_creation": "test_iteration4.py creates TEST_ prefixed worker (daily_rate=500), 2 attendance rows (present), 1 advance (₹300), 1 settlement then deletes them. Frontend flow creates a fresh mobile user + TEST_W4 worker + 1 present attendance + ₹300 advance.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 4 fully verified: (a) Mark Settled logic correctly zeros pending, (b) Ledger row at 420px viewport does NOT overflow in EN or KN, (c) Kannada Mark Settled button and stat labels fit inside their containers with break-words, (d) NEW Undo Settle end-to-end: DELETE /api/settlements/{sid} reverts pending; UI button appears when l.settlements?.length>0, testid=undo-settle-<worker_id>, calls DELETE and refreshes. 404 and 401 negative paths pass. Test files: /app/backend/tests/test_iteration4.py (6 tests, all pass in 1.6s).",
+  "rca of the issue": "Original user perception of 'Mark Settled broken' was misdiagnosed as logic; actual root cause was UI truncation of stat labels ('DAYS WORK…', 'NET ADVAN…') that looked like data overflow. Fix: Stat component removed 'truncate' on label and added 'leading-tight break-words'; Mark Settled button uses 'whitespace-normal h-auto min-h-[36px] py-1.5 leading-tight' with inner <span className='truncate'>. Both verified at 420px in EN and KN with computed scrollWidth === clientWidth."
+}

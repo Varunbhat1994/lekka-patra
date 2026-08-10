@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CaretRight, User, Wallet, WhatsappLogo, FilePdf, MicrosoftExcelLogo, Plus, ArrowUUpLeft } from "@phosphor-icons/react";
+import { CaretRight, User, Wallet, WhatsappLogo, FilePdf, MicrosoftExcelLogo, Plus, ArrowUUpLeft, ArrowCounterClockwise } from "@phosphor-icons/react";
 
 export default function Ledger() {
   const { t, user, API, lang } = useApp();
@@ -63,6 +63,19 @@ export default function Ledger() {
         note: "",
       });
       toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥ ದಾಖಲಿಸಲಾಗಿದೆ" : "Settled");
+      loadAll();
+    } catch { toast.error("Failed"); }
+  };
+
+  const undoSettle = async (w, settlement) => {
+    if (!settlement?.id) return;
+    if (!window.confirm(lang === "kn"
+      ? `${w.name} ರವರ ₹${settlement.amount} ಇತ್ಯರ್ಥವನ್ನು ರದ್ದುಮಾಡಬೇಕೆ?`
+      : `Undo settlement of ₹${settlement.amount} for ${w.name}?`
+    )) return;
+    try {
+      await axios.delete(`${API}/settlements/${settlement.id}`);
+      toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥ ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ" : "Settlement reversed");
       loadAll();
     } catch { toast.error("Failed"); }
   };
@@ -156,8 +169,20 @@ export default function Ledger() {
                   </Button>
                   {!locked && (
                     <Button data-testid={`settle-${w.id}`} onClick={() => settle(w)} size="sm"
-                      className="col-span-2 w-full rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90">
-                      <Wallet size={14} className="mr-1"/>{t("mark_settled")}
+                      className="col-span-2 w-full rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 whitespace-normal h-auto min-h-[36px] py-1.5 leading-tight">
+                      <Wallet size={14} className="mr-1 shrink-0"/>
+                      <span className="truncate">{t("mark_settled")}</span>
+                    </Button>
+                  )}
+                  {!locked && l?.settlements?.length > 0 && (
+                    <Button data-testid={`undo-settle-${w.id}`} onClick={() => undoSettle(w, l.settlements[0])} size="sm"
+                      variant="outline"
+                      className="col-span-2 w-full rounded-lg border-[hsl(var(--accent))] text-[hsl(var(--accent))] hover:bg-[hsl(var(--accent))]/10 min-h-[36px]">
+                      <ArrowCounterClockwise size={14} className="mr-1 shrink-0"/>
+                      <span className="truncate">
+                        {lang === "kn" ? "ಕೊನೆಯ ಇತ್ಯರ್ಥ ರದ್ದುಮಾಡಿ" : "Undo last settlement"}
+                        {` · ₹${l.settlements[0].amount || 0}`}
+                      </span>
                     </Button>
                   )}
                 </div>
@@ -225,9 +250,9 @@ export default function Ledger() {
 
 function Stat({ label, val, primary, accent }) {
   return (
-    <div className="border border-border rounded-lg p-2">
-      <div className="text-[9px] uppercase tracking-wider text-muted-foreground truncate">{label}</div>
-      <div className={`text-sm font-semibold mt-0.5 ${primary ? "text-[hsl(var(--primary))]" : accent ? "text-[hsl(var(--accent))]" : ""}`}>{val}</div>
+    <div className="border border-border rounded-lg p-2 min-w-0">
+      <div className="text-[9px] uppercase tracking-wider text-muted-foreground leading-tight break-words">{label}</div>
+      <div className={`text-sm font-semibold mt-0.5 truncate ${primary ? "text-[hsl(var(--primary))]" : accent ? "text-[hsl(var(--accent))]" : ""}`}>{val}</div>
     </div>
   );
 }

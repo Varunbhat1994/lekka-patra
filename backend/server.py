@@ -744,6 +744,14 @@ async def list_settlements(user: dict = Depends(get_current_user), worker_id: Op
     rows = await db.settlements.find(q, {"_id": 0}).sort("up_to_date", -1).to_list(1000)
     return rows
 
+@api.delete("/settlements/{sid}")
+async def del_settlement(sid: str, user: dict = Depends(require_write_access)):
+    """Reverse a settlement (in case cash was never actually paid)."""
+    res = await db.settlements.delete_one({"id": sid, "user_id": user["user_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Settlement not found")
+    return {"ok": True}
+
 # ---------------- Ledger computation ----------------
 def _wage_units(status: str, overtime_hours: float, daily_rate: float) -> float:
     if status == "present":
