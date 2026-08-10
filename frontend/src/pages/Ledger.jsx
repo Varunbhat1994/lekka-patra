@@ -62,13 +62,17 @@ export default function Ledger() {
         up_to_date: new Date().toISOString().slice(0,10),
         note: "",
       });
-      // Optimistically zero pending in local state so UI reflects immediately.
+      // Optimistic: settlement acts as cutoff → everything before today counts as closed.
       setLedgers(prev => ({
         ...prev,
         [w.id]: prev[w.id] ? {
           ...prev[w.id],
+          days_worked: 0,
+          total_earned: 0,
+          total_advance: 0,
+          total_returned: 0,
+          net_advance: 0,
           pending: 0,
-          net_advance: (prev[w.id].total_earned ?? 0),
           total_settled: (prev[w.id].total_settled ?? 0) + (prev[w.id].pending ?? 0),
         } : prev[w.id],
       }));

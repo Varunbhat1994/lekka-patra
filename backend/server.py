@@ -813,9 +813,17 @@ def _wage_units(status: str, overtime_hours: float, daily_rate: float) -> float:
     return 0.0
 
 async def compute_worker_ledger(user_id: str, worker: dict, start: Optional[str] = None, end: Optional[str] = None):
+    # Find the latest settlement cutoff date so we only count activity AFTER it.
+    all_settlements = await db.settlements.find(
+        {"user_id": user_id, "worker_id": worker["id"]}, {"_id": 0}
+    ).sort("up_to_date", -1).to_list(5000)
+    cutoff = all_settlements[0]["up_to_date"] if all_settlements else None
+
     q = {"user_id": user_id, "worker_id": worker["id"]}
     if start and end:
         q["date"] = {"$gte": start, "$lte": end}
+    elif cutoff:
+        q["date"] = {"$gt": cutoff}
     att = await db.attendance.find(q, {"_id": 0}).to_list(5000)
     total_earned = 0.0
     days_worked = 0.0
@@ -825,14 +833,18 @@ async def compute_worker_ledger(user_id: str, worker: dict, start: Optional[str]
         if a["status"] == "present": days_worked += 1
         elif a["status"] == "half_day": days_worked += 0.5
         elif a["status"] == "overtime": days_worked += 1 + a.get("overtime_hours", 0)/8.0
+
     adv_q = {"user_id": user_id, "worker_id": worker["id"]}
-    advances = await db.advances.find(adv_q, {"_id": 0}).to_list(5000)
+    if cutoff:
+        adv_q_dated = {**adv_q, "date": {"$gt": cutoff}}
+    else:
+        adv_q_dated = adv_q
+    advances = await db.advances.find(adv_q_dated, {"_id": 0}).to_list(5000)
     total_advance = sum(a["amount"] for a in advances)
-    returns = await db.advance_returns.find(adv_q, {"_id": 0}).sort("date", -1).to_list(5000)
+    returns = await db.advance_returns.find(adv_q_dated, {"_id": 0}).sort("date", -1).to_list(5000)
     total_returned = sum(r["amount"] for r in returns)
-    settlements = await db.settlements.find(adv_q, {"_id": 0}).sort("up_to_date", -1).to_list(5000)
-    total_settled = sum(s.get("amount", 0) or 0 for s in settlements)
-    net_advance = total_advance - total_returned + total_settled
+    total_settled = sum(s.get("amount", 0) or 0 for s in all_settlements)
+    net_advance = total_advance - total_returned
     return {
         "worker": worker,
         "days_worked": round(days_worked, 2),
@@ -842,10 +854,11 @@ async def compute_worker_ledger(user_id: str, worker: dict, start: Optional[str]
         "total_settled": round(total_settled, 2),
         "net_advance": round(net_advance, 2),
         "pending": round(total_earned - net_advance, 2),
+        "settled_up_to": cutoff,
         "attendance": att,
         "advances": advances,
         "returns": returns,
-        "settlements": settlements,
+        "settlements": all_settlements,
     }
 
 @api.get("/ledger/{worker_id}")
