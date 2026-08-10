@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import AppShell from "@/components/AppShell";
 import TrialBanner from "@/components/TrialBanner";
+import AdCarousel from "@/components/AdCarousel";
 import { useApp } from "@/context/AppContext";
 import { UsersThree, CheckCircle, CurrencyInr, Wallet } from "@phosphor-icons/react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
@@ -36,6 +37,8 @@ export default function Dashboard() {
         </div>
 
         <TrialBanner />
+
+        <AdCarousel />
 
         <div className="grid grid-cols-2 gap-3">
           {cards.map(c => (

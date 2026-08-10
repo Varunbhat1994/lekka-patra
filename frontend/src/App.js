@@ -5,6 +5,8 @@ import { Toaster } from "sonner";
 
 import LanguagePicker from "@/pages/LanguagePicker";
 import Login from "@/pages/Login";
+import OtpLogin from "@/pages/OtpLogin";
+import ProfileSetup from "@/pages/ProfileSetup";
 import AuthCallback from "@/pages/AuthCallback";
 import Dashboard from "@/pages/Dashboard";
 import Workers from "@/pages/Workers";
@@ -14,12 +16,16 @@ import Settings from "@/pages/Settings";
 import Paywall from "@/pages/Paywall";
 import { PaymentSuccess, PaymentCancel } from "@/pages/PaymentResult";
 
-function Protected({ children }) {
+function Protected({ children, requireProfile = true }) {
   const { user, loading } = useApp();
   if (loading) {
     return <div className="min-h-screen grid place-items-center text-sm text-muted-foreground">Loading…</div>;
   }
   if (!user) return <Navigate to="/login" replace />;
+  // Mobile users must complete profile (name + district) before entering the app
+  if (requireProfile && user.mobile && !(user.name && user.district)) {
+    return <Navigate to="/profile-setup" replace />;
+  }
   return children;
 }
 
@@ -38,6 +44,8 @@ function AppRouter() {
     <Routes>
       <Route path="/" element={<LandingRoute />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/otp" element={<OtpLogin />} />
+      <Route path="/profile-setup" element={<Protected requireProfile={false}><ProfileSetup /></Protected>} />
       <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
       <Route path="/workers" element={<Protected><Workers /></Protected>} />
       <Route path="/attendance" element={<Protected><Attendance /></Protected>} />
