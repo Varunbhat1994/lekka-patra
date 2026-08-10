@@ -11,7 +11,7 @@ import {
 import { toast } from "sonner";
 import {
   Plus, HardHat, CalendarPlus, CurrencyInr, Trash,
-  Users, Wallet, X, ArrowLeft, FilePdf, MicrosoftExcelLogo, ArrowUUpLeft, WhatsappLogo,
+  Users, Wallet, X, ArrowLeft, FilePdf, MicrosoftExcelLogo, ArrowUUpLeft, WhatsappLogo, Check,
 } from "@phosphor-icons/react";
 
 const emptyContractor = { name: "", mobile: "", notes: "" };
@@ -213,6 +213,24 @@ function ContractorDetail({ id, onClose }) {
     link.click();
   };
 
+  const settleContractor = async () => {
+    if (!window.confirm(`Mark ${data?.contractor?.name || ""} settled?`)) return;
+    try {
+      await axios.post(`${API}/settlements`, {
+        contractor_id: id,
+        up_to_date: today(),
+      });
+      // Optimistically zero net_paid
+      setData(prev => prev ? {
+        ...prev,
+        net_paid: 0,
+        total_returned: (prev.total_returned || 0) + (prev.net_paid || 0),
+      } : prev);
+      toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥ ದಾಖಲಿಸಲಾಗಿದೆ" : "Settled");
+      load();
+    } catch { toast.error("Failed"); }
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-[hsl(var(--background))] overflow-y-auto"
          data-testid="contractor-detail">
@@ -252,15 +270,15 @@ function ContractorDetail({ id, onClose }) {
             </div>
           )}
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button data-testid="contractor-pdf-btn"
               onClick={() => downloadFile(`/reports/contractor/${id}/pdf`, `${data?.contractor?.name || "contractor"}.pdf`)}
-              variant="outline" className="w-full min-h-[40px] rounded-lg">
+              variant="outline" className="flex-1 min-w-[calc(33%-6px)] min-h-[40px] rounded-lg">
               <FilePdf size={16} className="mr-1"/>PDF
             </Button>
             <Button data-testid="contractor-excel-btn"
               onClick={() => downloadFile(`/reports/contractor/${id}/excel`, `${data?.contractor?.name || "contractor"}.xlsx`)}
-              variant="outline" className="w-full min-h-[40px] rounded-lg">
+              variant="outline" className="flex-1 min-w-[calc(33%-6px)] min-h-[40px] rounded-lg">
               <MicrosoftExcelLogo size={16} className="mr-1"/>Excel
             </Button>
             <Button data-testid="contractor-whatsapp-btn"
@@ -271,9 +289,19 @@ function ContractorDetail({ id, onClose }) {
                 const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
                 window.open(url, "_blank");
               }}
-              variant="outline" className="w-full min-h-[40px] rounded-lg border-[hsl(142_60%_35%)]/40 text-[hsl(142_60%_30%)]">
+              variant="outline" className="flex-1 min-w-[calc(33%-6px)] min-h-[40px] rounded-lg border-[hsl(142_60%_35%)]/40 text-[hsl(142_60%_30%)]">
               <WhatsappLogo size={16} weight="duotone" className="mr-1"/>WA
             </Button>
+            {!locked && (
+              <Button data-testid="contractor-settle-btn"
+                onClick={settleContractor}
+                className="basis-full w-full min-h-[40px] rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 whitespace-normal leading-tight">
+                <Check size={16} className="mr-1 shrink-0"/>
+                <span className="truncate">
+                  {lang === "kn" ? "ಇತ್ಯರ್ಥ ಎಂದು ಗುರುತಿಸಿ" : "Mark settled"}
+                </span>
+              </Button>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-2 p-1 bg-secondary/50 rounded-lg">

@@ -62,6 +62,16 @@ export default function Ledger() {
         up_to_date: new Date().toISOString().slice(0,10),
         note: "",
       });
+      // Optimistically zero pending in local state so UI reflects immediately.
+      setLedgers(prev => ({
+        ...prev,
+        [w.id]: prev[w.id] ? {
+          ...prev[w.id],
+          pending: 0,
+          net_advance: (prev[w.id].total_earned ?? 0),
+          total_settled: (prev[w.id].total_settled ?? 0) + (prev[w.id].pending ?? 0),
+        } : prev[w.id],
+      }));
       toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥ ದಾಖಲಿಸಲಾಗಿದೆ" : "Settled");
       loadAll();
     } catch { toast.error("Failed"); }
@@ -148,28 +158,28 @@ export default function Ledger() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-2 pt-1">
+                <div className="flex flex-wrap gap-2 pt-1">
                   {!locked && (
-                    <Button data-testid={`add-adv-${w.id}`} onClick={() => openAdvance(w, "advance")} size="sm" variant="outline" className="w-full rounded-lg">
+                    <Button data-testid={`add-adv-${w.id}`} onClick={() => openAdvance(w, "advance")} size="sm" variant="outline" className="flex-1 min-w-[calc(50%-4px)] rounded-lg">
                       <Plus size={14} className="mr-1"/>{lang === "kn" ? "ಮುಂಗಡ" : "Advance"}
                     </Button>
                   )}
                   {!locked && (
                     <Button data-testid={`add-ret-${w.id}`} onClick={() => openAdvance(w, "return")} size="sm" variant="outline"
-                      className="w-full rounded-lg border-[hsl(var(--primary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/5">
+                      className="flex-1 min-w-[calc(50%-4px)] rounded-lg border-[hsl(var(--primary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/5">
                       <ArrowUUpLeft size={14} className="mr-1"/>{lang === "kn" ? "ವಾಪಸಾತಿ" : "Return"}
                     </Button>
                   )}
                   <Button data-testid={`pdf-${w.id}`} onClick={() => downloadFile(`/reports/pdf?worker_id=${w.id}`, `${w.name}.pdf`)}
-                    size="sm" variant="outline" className="w-full rounded-lg">
+                    size="sm" variant="outline" className="flex-1 min-w-[calc(50%-4px)] rounded-lg">
                     <FilePdf size={14} className="mr-1"/>PDF
                   </Button>
-                  <Button data-testid={`wa-${w.id}`} onClick={() => whatsappShare(w)} size="sm" variant="outline" className="w-full rounded-lg">
+                  <Button data-testid={`wa-${w.id}`} onClick={() => whatsappShare(w)} size="sm" variant="outline" className="flex-1 min-w-[calc(50%-4px)] rounded-lg">
                     <WhatsappLogo size={14} weight="duotone" className="mr-1"/>WhatsApp
                   </Button>
                   {!locked && (
                     <Button data-testid={`settle-${w.id}`} onClick={() => settle(w)} size="sm"
-                      className="col-span-2 w-full rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 whitespace-normal h-auto min-h-[36px] py-1.5 leading-tight">
+                      className="basis-full w-full rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 whitespace-normal h-auto min-h-[36px] py-1.5 leading-tight">
                       <Wallet size={14} className="mr-1 shrink-0"/>
                       <span className="truncate">{t("mark_settled")}</span>
                     </Button>
@@ -177,7 +187,7 @@ export default function Ledger() {
                   {!locked && l?.settlements?.length > 0 && (
                     <Button data-testid={`undo-settle-${w.id}`} onClick={() => undoSettle(w, l.settlements[0])} size="sm"
                       variant="outline"
-                      className="col-span-2 w-full rounded-lg border-[hsl(var(--accent))] text-[hsl(var(--accent))] hover:bg-[hsl(var(--accent))]/10 min-h-[36px]">
+                      className="basis-full w-full rounded-lg border-[hsl(var(--accent))] text-[hsl(var(--accent))] hover:bg-[hsl(var(--accent))]/10 min-h-[36px]">
                       <ArrowCounterClockwise size={14} className="mr-1 shrink-0"/>
                       <span className="truncate">
                         {lang === "kn" ? "ಕೊನೆಯ ಇತ್ಯರ್ಥ ರದ್ದುಮಾಡಿ" : "Undo last settlement"}

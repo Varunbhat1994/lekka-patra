@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 5: Verified NEW contractor Mark Settled path (backend + frontend), worker settle regression, negative-path validations (400/404), optimistic UI refresh, and flex-wrap button layout at 420px. Backend pytest 8/8 passed (contractor ledger before settle → net_paid=1500; POST /api/settlements {contractor_id} → net_paid=0 and total_returned=1500; DELETE /api/settlements/{sid} → net_paid reverts to 1500 and auto-return removed; worker settle still zeroes pending=700; missing ids → 400; nonexistent worker/contractor → 404). Frontend @420x900: worker ledger `settle-<wid>` click optimistically flips PENDING ₹700 → ₹0 within 300ms with `undo-settle-<wid>` appearing; Undo reverts pending back to ₹700. Contractor detail sheet `contractor-settle-btn` renders full-width (378px = container 378px), no horizontal overflow (docW 420 = viewport 420), label 'Mark settled' fully visible with whitespace-normal + leading-tight, click optimistically flips NET PAID ₹1500 → ₹0 within 400ms, backend confirms total_returned=1500 net_paid=0 with linked contractor_return (method='settlement', settlement_id set).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Language toggle", "issues": ["localStorage.setItem('fl_lang','kn') alone did not switch UI language on reload — language appears sourced from user profile. Not a regression; user picks language via Settings/onboarding. Non-blocking for this scope."]},
+      {"screen": "Dialogs (pre-existing)", "issues": ["Radix a11y warning 'Missing Description or aria-describedby for DialogContent' persists — pre-existing since iteration_2, non-blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5.py",
+    "/app/test_reports/pytest/pytest_iter5.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py settle() correctly branches on worker_id/contractor_id, raises 400 when neither, 404 when target missing. Contractor path records both settlement + linked contractor_return with settlement_id — clean design allowing DELETE to reverse via delete_many({settlement_id: sid}).",
+    "Ledger.jsx settle() optimistic update also recomputes total_settled and net_advance locally — matches backend compute_worker_ledger formula. loadAll() reconciles afterwards.",
+    "ContractorsSection.jsx settleContractor() optimistic update sets net_paid=0 and total_returned+=net_paid — matches backend. Button correctly hidden when user.access.locked.",
+    "Undo button only exposes latest settlement (l.settlements[0], sorted desc) — acceptable UX per spec.",
+    "server.py still ~1354 lines — consider splitting (pre-existing note, not blocking)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration5.py", "/app/test_reports/iteration_5.json"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Ephemeral OTP dev flow — dev_otp returned by /api/auth/otp/send in dev mode.",
+  "seed_data_creation": "test_iteration5.py: TEST_Contractor5 with ₹1500 payment, TEST_WorkerReg5 with 2 present days (rate 500) and ₹300 advance; all deleted in test_cleanup. Frontend flow creates fresh mobile user + TEST_W5 worker + TEST_C5 contractor with ₹1500 payment (left in DB, orphan under ephemeral user).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 5 fully verified all bug fixes and new features from this request. Backend: 8 tests pass in test_iteration5.py covering worker/contractor settle + undo + negatives. Frontend: worker + contractor optimistic updates and full-width `basis-full w-full` buttons at 420px verified with computed widths matching container and no doc overflow. Testids used: settle-<wid>, undo-settle-<wid>, contractor-settle-btn, contractor-row-<cid>, contractor-detail.",
+  "rca of the issue": "User's re-report was because there was no contractor Mark Settled path — only workers had it. Fix (a) extended POST /api/settlements to branch on contractor_id and record both a settlement and a linked contractor_return so contractor_ledger.net_paid becomes 0; (b) DELETE /api/settlements/{sid} pre-deletes linked contractor_returns via settlement_id so net_paid correctly reverts; (c) new contractor-settle-btn added below PDF/Excel/WA with basis-full w-full for full-row layout; (d) worker settle() now does optimistic setLedgers before loadAll() so UI reflects ₹0 pending within same tick. All three regressions verified fixed at 420px viewport."
+}
