@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { useApp } from "@/context/AppContext";
-import { MapPin, ArrowRight } from "@phosphor-icons/react";
 
 const AUTOPLAY_MS = 10000;
 const SWIPE_THRESHOLD = 50; // px
@@ -104,24 +103,12 @@ export default function AdCarousel() {
               className="relative shrink-0 h-64 sm:h-72"
               style={{ width: `${100 / ads.length}%` }}
             >
-              <img src={ad.image_url} alt={ad.title} draggable={false}
-                   className="absolute inset-0 w-full h-full object-cover pointer-events-none"/>
-              <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent"/>
-              <div className="absolute inset-x-0 bottom-0 p-5 text-white">
-                <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] opacity-90">
-                  <MapPin size={12} weight="fill"/>
-                  {user?.district || "All Karnataka"}
-                </div>
-                <div className="mt-2 flex items-end justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="font-semibold text-lg leading-tight">{ad.title}</div>
-                    <div className="text-xs opacity-90 mt-1">{ad.subtitle}</div>
-                  </div>
-                  <div className="shrink-0 rounded-full bg-white text-[hsl(var(--foreground))] text-xs font-semibold px-3.5 py-2 flex items-center gap-1">
-                    {ad.cta_label} <ArrowRight size={12} weight="bold"/>
-                  </div>
-                </div>
-              </div>
+              <img
+                src={ad.image_url}
+                alt=""
+                draggable={false}
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+              />
             </a>
           ))}
         </div>

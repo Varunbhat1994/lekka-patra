@@ -855,7 +855,41 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "pending_wage": pending_wage,
         "chart": chart,
         "crops": sorted(list(all_crops)),
+        "pending_list": await _compute_pending_list(user["user_id"], workers),
     }
+
+async def _compute_pending_list(user_id: str, workers: list) -> list:
+    """List of {name, pending, type} for workers/contractors who have received an advance/payment."""
+    items = []
+    # Workers with advance given
+    for w in workers:
+        advs = await db.advances.find({"user_id": user_id, "worker_id": w["id"]}, {"_id": 0}).to_list(1000)
+        if not advs:
+            continue
+        led = await compute_worker_ledger(user_id, w)
+        items.append({
+            "type": "worker",
+            "name": w["name"],
+            "pending": led["pending"],
+            "advance": led["total_advance"],
+        })
+    # Contractors with payment given
+    contractors = await db.contractors.find({"user_id": user_id}, {"_id": 0}).to_list(500)
+    for c in contractors:
+        payments = await db.contractor_payments.find({"user_id": user_id, "contractor_id": c["id"]}, {"_id": 0}).to_list(1000)
+        if not payments:
+            continue
+        returns = await db.contractor_returns.find({"user_id": user_id, "contractor_id": c["id"]}, {"_id": 0}).to_list(1000)
+        total_paid = sum(p["amount"] for p in payments)
+        total_returned = sum(r["amount"] for r in returns)
+        net_paid = round(total_paid - total_returned, 2)
+        items.append({
+            "type": "contractor",
+            "name": c["name"],
+            "pending": net_paid,
+            "advance": round(total_paid, 2),
+        })
+    return items
 
 # ---------------- Reports ----------------
 @api.get("/reports/pdf")
@@ -1089,6 +1123,66 @@ async def whatsapp_text(worker_id: str, user: dict = Depends(get_current_user), 
             f"Pending: Rs {led['pending']}"
         )
     return {"message": msg, "phone": worker.get("mobile", "")}
+
+@api.get("/reports/contractor/{cid}/whatsapp")
+async def contractor_whatsapp(cid: str, user: dict = Depends(get_current_user), lang: str = "en"):
+    contractor = await db.contractors.find_one({"id": cid, "user_id": user["user_id"]}, {"_id": 0})
+    if not contractor:
+        raise HTTPException(404, "Contractor not found")
+    visits = await db.contractor_visits.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", -1).to_list(500)
+    payments = await db.contractor_payments.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", -1).to_list(500)
+    returns = await db.contractor_returns.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", -1).to_list(500)
+    total_workers = sum(v.get("workers_count", 0) for v in visits)
+    total_paid = sum(p["amount"] for p in payments)
+    total_returned = sum(r["amount"] for r in returns)
+    net_paid = round(total_paid - total_returned, 2)
+
+    recent_visits = visits[:5]
+    recent_pays = payments[:5]
+
+    if lang == "kn":
+        lines = [
+            f"ನಮಸ್ಕಾರ {contractor['name']},",
+            "",
+            f"ಒಟ್ಟು ಭೇಟಿಗಳು: {len(visits)}",
+            f"ಒಟ್ಟು ಕಾರ್ಮಿಕರು: {total_workers}",
+            f"ಒಟ್ಟು ಪಾವತಿ: ರೂ {total_paid}",
+            f"ವಾಪಸಾತಿ: ರೂ {total_returned}",
+            f"ನಿವ್ವಳ ಪಾವತಿ: ರೂ {net_paid}",
+        ]
+        if recent_visits:
+            lines += ["", "ಇತ್ತೀಚಿನ ಭೇಟಿಗಳು:"]
+            for v in recent_visits:
+                lines.append(f"• {v['date']} — {v.get('workers_count', 0)} ಕಾರ್ಮಿಕರು ({v.get('field_crop','—')})")
+        if recent_pays:
+            lines += ["", "ಇತ್ತೀಚಿನ ಪಾವತಿಗಳು:"]
+            for p in recent_pays:
+                lines.append(f"• {p['date']} — ರೂ {p['amount']} ({p.get('method','')})")
+    else:
+        lines = [
+            f"Hi {contractor['name']},",
+            "",
+            f"Total visits: {len(visits)}",
+            f"Total workers brought: {total_workers}",
+            f"Total paid: Rs {total_paid}",
+            f"Returned: Rs {total_returned}",
+            f"Net paid: Rs {net_paid}",
+        ]
+        if recent_visits:
+            lines += ["", "Recent visits:"]
+            for v in recent_visits:
+                lines.append(f"• {v['date']} — {v.get('workers_count', 0)} workers ({v.get('field_crop','—')})")
+        if recent_pays:
+            lines += ["", "Recent payments:"]
+            for p in recent_pays:
+                lines.append(f"• {p['date']} — Rs {p['amount']} ({p.get('method','')})")
+    return {"message": "\n".join(lines), "phone": contractor.get("mobile", "")}
 
 # ---------------- Payments (Stripe Flow B) ----------------
 LIFETIME_PRICE = float(os.environ.get("LIFETIME_PRICE_INR", "499"))

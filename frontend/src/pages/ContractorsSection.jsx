@@ -11,7 +11,7 @@ import {
 import { toast } from "sonner";
 import {
   Plus, HardHat, CalendarPlus, CurrencyInr, Trash,
-  Users, Wallet, X, ArrowLeft, FilePdf, MicrosoftExcelLogo, ArrowUUpLeft,
+  Users, Wallet, X, ArrowLeft, FilePdf, MicrosoftExcelLogo, ArrowUUpLeft, WhatsappLogo,
 } from "@phosphor-icons/react";
 
 const emptyContractor = { name: "", mobile: "", notes: "" };
@@ -252,7 +252,7 @@ function ContractorDetail({ id, onClose }) {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <Button data-testid="contractor-pdf-btn"
               onClick={() => downloadFile(`/reports/contractor/${id}/pdf`, `${data?.contractor?.name || "contractor"}.pdf`)}
               variant="outline" className="w-full min-h-[40px] rounded-lg">
@@ -262,6 +262,17 @@ function ContractorDetail({ id, onClose }) {
               onClick={() => downloadFile(`/reports/contractor/${id}/excel`, `${data?.contractor?.name || "contractor"}.xlsx`)}
               variant="outline" className="w-full min-h-[40px] rounded-lg">
               <MicrosoftExcelLogo size={16} className="mr-1"/>Excel
+            </Button>
+            <Button data-testid="contractor-whatsapp-btn"
+              onClick={async () => {
+                const { data: msg } = await axios.get(`${API}/reports/contractor/${id}/whatsapp?lang=${lang || "en"}`);
+                const phone = (msg.phone || "").replace(/[^\d]/g, "");
+                const text = encodeURIComponent(msg.message);
+                const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
+                window.open(url, "_blank");
+              }}
+              variant="outline" className="w-full min-h-[40px] rounded-lg border-[hsl(142_60%_35%)]/40 text-[hsl(142_60%_30%)]">
+              <WhatsappLogo size={16} weight="duotone" className="mr-1"/>WA
             </Button>
           </div>
 
