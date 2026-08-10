@@ -38,8 +38,6 @@ export default function Dashboard() {
 
         <TrialBanner />
 
-        <AdCarousel />
-
         <div className="grid grid-cols-2 gap-3">
           {cards.map(c => (
             <div key={c.key} data-testid={c.tid} className="rounded-xl border border-border bg-card p-4">
@@ -50,45 +48,7 @@ export default function Dashboard() {
           ))}
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{t("outstanding_advance")}</div>
-              <div className="mt-1 text-xl font-semibold text-[hsl(var(--accent))]">
-                ₹{data?.outstanding_advance ?? "—"}
-              </div>
-            </div>
-            <div className="h-10 w-10 rounded-full bg-[hsl(var(--accent))]/10 text-[hsl(var(--accent))] grid place-items-center">
-              <Wallet size={20} weight="duotone"/>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-4">
-          <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground mb-3">
-            {t("monthly_expense")}
-          </div>
-          {data?.chart?.length ? (
-            <div style={{ width: "100%", height: 240 }}>
-              <ResponsiveContainer>
-                <BarChart data={data.chart}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(215 15% 85%)" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }}/>
-                  <Legend wrapperStyle={{ fontSize: 11 }}/>
-                  {data.crops.map((c, i) => (
-                    <Bar key={c} dataKey={c} stackId="a" fill={COLORS[i % COLORS.length]} radius={[4,4,0,0]}/>
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground py-8 text-center">
-              No expense data yet.
-            </div>
-          )}
-        </div>
+        <AdCarousel />
       </div>
     </AppShell>
   );
