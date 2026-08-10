@@ -69,7 +69,7 @@ export default function AdCarousel() {
     <div data-testid="ads-carousel" className="rounded-xl border border-border overflow-hidden bg-card relative select-none">
       <div
         ref={trackRef}
-        className="relative h-40 overflow-hidden touch-pan-y cursor-grab active:cursor-grabbing"
+        className="relative h-64 sm:h-72 overflow-hidden touch-pan-y cursor-grab active:cursor-grabbing"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -93,23 +93,23 @@ export default function AdCarousel() {
               rel="noopener noreferrer"
               onClick={(e) => { if (Math.abs(drag) > 5) e.preventDefault(); }}
               draggable={false}
-              className="relative shrink-0 h-40"
+              className="relative shrink-0 h-64 sm:h-72"
               style={{ width: `${100 / ads.length}%` }}
             >
               <img src={ad.image_url} alt={ad.title} draggable={false}
                    className="absolute inset-0 w-full h-full object-cover pointer-events-none"/>
               <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent"/>
-              <div className="absolute inset-x-0 bottom-0 p-4 text-white">
+              <div className="absolute inset-x-0 bottom-0 p-5 text-white">
                 <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] opacity-90">
                   <MapPin size={12} weight="fill"/>
                   {user?.district || "All Karnataka"}
                 </div>
-                <div className="mt-1 flex items-end justify-between gap-3">
+                <div className="mt-2 flex items-end justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-semibold text-base truncate">{ad.title}</div>
-                    <div className="text-xs opacity-90 truncate">{ad.subtitle}</div>
+                    <div className="font-semibold text-lg leading-tight">{ad.title}</div>
+                    <div className="text-xs opacity-90 mt-1">{ad.subtitle}</div>
                   </div>
-                  <div className="shrink-0 rounded-full bg-white text-[hsl(var(--foreground))] text-xs font-semibold px-3 py-1.5 flex items-center gap-1">
+                  <div className="shrink-0 rounded-full bg-white text-[hsl(var(--foreground))] text-xs font-semibold px-3.5 py-2 flex items-center gap-1">
                     {ad.cta_label} <ArrowRight size={12} weight="bold"/>
                   </div>
                 </div>
