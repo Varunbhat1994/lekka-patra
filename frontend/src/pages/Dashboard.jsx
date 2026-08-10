@@ -4,6 +4,7 @@ import AppShell from "@/components/AppShell";
 import TrialBanner from "@/components/TrialBanner";
 import AdCarousel from "@/components/AdCarousel";
 import PendingWageMarquee from "@/components/PendingWageMarquee";
+import FeedbackBell from "@/components/FeedbackBell";
 import { useApp } from "@/context/AppContext";
 import { UsersThree, CheckCircle, CurrencyInr, Wallet } from "@phosphor-icons/react";
 
@@ -16,7 +17,7 @@ export default function Dashboard() {
   }, [API]);
 
   return (
-    <AppShell title={t("dashboard")}>
+    <AppShell title={t("dashboard")} right={<FeedbackBell />}>
       <div className="space-y-4">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">

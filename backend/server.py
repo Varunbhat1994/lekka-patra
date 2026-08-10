@@ -240,6 +240,7 @@ class OtpVerifyIn(BaseModel):
 class ProfileIn(BaseModel):
     name: str
     district: str
+    mobile: Optional[str] = None
 
 @api.get("/districts")
 async def list_districts():
@@ -325,13 +326,69 @@ async def set_profile(payload: ProfileIn, user: dict = Depends(get_current_user)
         raise HTTPException(400, "Invalid district")
     if not payload.name.strip():
         raise HTTPException(400, "Name required")
-    await db.users.update_one(
-        {"user_id": user["user_id"]},
-        {"$set": {"name": payload.name.strip(), "district": payload.district}},
-    )
+    update = {"name": payload.name.strip(), "district": payload.district}
+    if payload.mobile is not None and payload.mobile.strip():
+        new_mobile = _normalize_mobile(payload.mobile)
+        if len(new_mobile) < 10:
+            raise HTTPException(400, "Invalid mobile")
+        # Check uniqueness (other users can't own the same mobile)
+        conflict = await db.users.find_one(
+            {"mobile": new_mobile, "user_id": {"$ne": user["user_id"]}}, {"_id": 0}
+        )
+        if conflict:
+            raise HTTPException(409, "Mobile already used by another account")
+        update["mobile"] = new_mobile
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     updated["access"] = compute_access(updated)
     return {"ok": True, "user": updated}
+
+# ---------------- Feedback ----------------
+class FeedbackIn(BaseModel):
+    message: str
+    rating: Optional[int] = None
+    category: Optional[str] = "general"
+
+@api.post("/feedback")
+async def create_feedback(f: FeedbackIn, user: dict = Depends(get_current_user)):
+    if not (f.message or "").strip():
+        raise HTTPException(400, "Message required")
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "user_name": user.get("name") or "",
+        "user_mobile": user.get("mobile") or "",
+        "message": f.message.strip()[:2000],
+        "rating": int(f.rating) if f.rating else None,
+        "category": (f.category or "general")[:32],
+        "read": False,
+        "created_at": now_utc().isoformat(),
+    }
+    await db.feedback.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.get("/feedback")
+async def list_feedback(user: dict = Depends(get_current_user), only_unread: bool = False):
+    q = {"user_id": user["user_id"]}
+    if only_unread:
+        q["read"] = False
+    rows = await db.feedback.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return rows
+
+@api.post("/feedback/{fid}/read")
+async def mark_feedback_read(fid: str, user: dict = Depends(get_current_user)):
+    await db.feedback.update_one(
+        {"id": fid, "user_id": user["user_id"]}, {"$set": {"read": True}}
+    )
+    return {"ok": True}
+
+@api.post("/feedback/read-all")
+async def mark_all_feedback_read(user: dict = Depends(get_current_user)):
+    await db.feedback.update_many(
+        {"user_id": user["user_id"], "read": False}, {"$set": {"read": True}}
+    )
+    return {"ok": True}
 
 # ---------------- Ads (district-targeted) ----------------
 AD_SEED = [
@@ -996,6 +1053,28 @@ async def report_pdf(user: dict = Depends(get_current_user), worker_id: Optional
             ("PADDING", (0,0), (-1,-1), 6),
         ]))
         story.append(t)
+
+        # Date-wise attendance log
+        if led["attendance"]:
+            story.append(Spacer(1, 6))
+            story.append(Paragraph("<b>Attendance (date-wise)</b>", styles["Normal"]))
+            att_rows = [["Date", "Status", "OT hrs", "Field/Crop", "Description"]]
+            for a in sorted(led["attendance"], key=lambda x: x["date"]):
+                att_rows.append([
+                    a["date"],
+                    a["status"].replace("_", " ").title(),
+                    a.get("overtime_hours", 0) or "",
+                    a.get("field_crop", ""),
+                    (a.get("description", "") or "")[:60],
+                ])
+            att_tab = Table(att_rows, hAlign="LEFT")
+            att_tab.setStyle(TableStyle([
+                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")),
+                ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+                ("FONTSIZE", (0,0), (-1,-1), 9),
+                ("PADDING", (0,0), (-1,-1), 4),
+            ]))
+            story.append(att_tab)
 
         if led["advances"] or led["returns"]:
             story.append(Spacer(1, 6))

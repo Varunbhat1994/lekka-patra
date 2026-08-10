@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 7: Admin profile editing (mobile), Feedback system (backend + frontend bell), PDF date-wise attendance detail. All 11 backend pytest passed. Frontend flows verified at 420px viewport: edit-profile-btn opens dialog with name/mobile/district — save (200) updates settings display; feedback submit closes dialog + toast; dashboard FeedbackBell shows badge=1, auto-opens popover on new item, mark-all-read clears badge; conflicting mobile returns 409; Kannada 'ಇತ್ಯರ್ಥ ಎಂದು ಗುರುತಿಸಿ' fits within 344px button on /ledger with no horizontal overflow.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Settings (react dev overlay)", "issues": ["Non-blocking benign ResizeObserver 'loop completed with undelivered notifications' error was captured by CRA dev overlay — occurs after saving profile; does not affect functionality but should be silenced in production build."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration7.py",
+    "/app/test_reports/pytest/pytest_iter7.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~1445 lines — recommend splitting into modules (feedback.py, reports.py, auth.py). Non-blocking.",
+    "POST /api/auth/profile — mobile field requires district on every save. Consider making district optional if profile is already set (currently must always be re-sent).",
+    "FeedbackBell polls every 30s regardless of visibility; consider pausing when tab is hidden (document.visibilityState).",
+    "Feedback popover auto-open on new unread works via useEffect on unreadCount only — if two items arrive between polls, seenRef properly tracks IDs. Correct.",
+    "PDF generation loads all workers when worker_id filter is set (workers_query filters correctly). No N+1 issue for single-worker case.",
+    "Feedback message truncated to 2000 chars server-side (good). No input length hint in UI textarea."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration7.py",
+    "/app/test_reports/iteration_7.json"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (all flows verified)"},
+  "test_credentials": "Ephemeral mobile OTP dev flow (dev_otp returned from /api/auth/otp/send).",
+  "seed_data_creation": "Backend: multiple ephemeral OTP mobile users + TEST_PdfWorker (deleted), TEST_Reg7 (deleted), TEST_C7 (deleted). Frontend: 2 ephemeral mobile users + TEST_UILedger7 (orphan under 2nd user — no cleanup impact).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Round 7 features fully verified. To test PDF text extraction use pypdf (installed). Feedback is per-user scoped. FeedbackBell auto-open triggered via 'feedback:submitted' window event or new unread items during 30s poll. Kannada 'ಇತ್ಯರ್ಥ ಎಂದು ಗುರುತಿಸಿ' button uses whitespace-normal wrapping and stays within 420px viewport.",
+  "rca of the issue": "N/A — all features work as specified."
+}
