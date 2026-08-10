@@ -62,7 +62,8 @@ export default function Ledger() {
         up_to_date: new Date().toISOString().slice(0,10),
         note: "",
       });
-      toast.success(t("saved"));
+      toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥ ದಾಖಲಿಸಲಾಗಿದೆ" : "Settled");
+      loadAll();
     } catch { toast.error("Failed"); }
   };
 
@@ -134,22 +135,28 @@ export default function Ledger() {
                   </div>
                 )}
 
-                <div className="flex gap-2 pt-1">
+                <div className="grid grid-cols-2 gap-2 pt-1">
                   {!locked && (
-                    <Button data-testid={`add-adv-${w.id}`} onClick={() => openAdvance(w, "advance")} size="sm" variant="outline" className="flex-1 rounded-lg">
-                      <Plus size={14} className="mr-1"/>{t("record_advance")}
+                    <Button data-testid={`add-adv-${w.id}`} onClick={() => openAdvance(w, "advance")} size="sm" variant="outline" className="w-full rounded-lg">
+                      <Plus size={14} className="mr-1"/>{lang === "kn" ? "ಮುಂಗಡ" : "Advance"}
                     </Button>
                   )}
                   {!locked && (
-                    <Button data-testid={`add-ret-${w.id}`} onClick={() => openAdvance(w, "return")} size="sm" variant="outline" className="flex-1 rounded-lg border-[hsl(var(--primary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/5">
+                    <Button data-testid={`add-ret-${w.id}`} onClick={() => openAdvance(w, "return")} size="sm" variant="outline"
+                      className="w-full rounded-lg border-[hsl(var(--primary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/5">
                       <ArrowUUpLeft size={14} className="mr-1"/>{lang === "kn" ? "ವಾಪಸಾತಿ" : "Return"}
                     </Button>
                   )}
-                  <Button data-testid={`wa-${w.id}`} onClick={() => whatsappShare(w)} size="sm" variant="outline" className="rounded-lg">
-                    <WhatsappLogo size={16} weight="duotone"/>
+                  <Button data-testid={`pdf-${w.id}`} onClick={() => downloadFile(`/reports/pdf?worker_id=${w.id}`, `${w.name}.pdf`)}
+                    size="sm" variant="outline" className="w-full rounded-lg">
+                    <FilePdf size={14} className="mr-1"/>PDF
+                  </Button>
+                  <Button data-testid={`wa-${w.id}`} onClick={() => whatsappShare(w)} size="sm" variant="outline" className="w-full rounded-lg">
+                    <WhatsappLogo size={14} weight="duotone" className="mr-1"/>WhatsApp
                   </Button>
                   {!locked && (
-                    <Button data-testid={`settle-${w.id}`} onClick={() => settle(w)} size="sm" className="rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90">
+                    <Button data-testid={`settle-${w.id}`} onClick={() => settle(w)} size="sm"
+                      className="col-span-2 w-full rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90">
                       <Wallet size={14} className="mr-1"/>{t("mark_settled")}
                     </Button>
                   )}

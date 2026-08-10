@@ -488,6 +488,7 @@ async def del_contractor(cid: str, user: dict = Depends(require_write_access)):
     await db.contractors.delete_one({"id": cid, "user_id": user["user_id"]})
     await db.contractor_visits.delete_many({"contractor_id": cid, "user_id": user["user_id"]})
     await db.contractor_payments.delete_many({"contractor_id": cid, "user_id": user["user_id"]})
+    await db.contractor_returns.delete_many({"contractor_id": cid, "user_id": user["user_id"]})
     return {"ok": True}
 
 @api.get("/contractor-visits")
@@ -546,6 +547,41 @@ async def del_cpayment(pid: str, user: dict = Depends(require_write_access)):
     await db.contractor_payments.delete_one({"id": pid, "user_id": user["user_id"]})
     return {"ok": True}
 
+class ContractorReturnIn(BaseModel):
+    contractor_id: str
+    date: str
+    amount: float
+    method: str = "cash"
+    notes: Optional[str] = ""
+
+@api.get("/contractor-returns")
+async def list_creturns(contractor_id: str, user: dict = Depends(get_current_user)):
+    rows = await db.contractor_returns.find(
+        {"contractor_id": contractor_id, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", -1).to_list(2000)
+    return rows
+
+@api.post("/contractor-returns")
+async def add_creturn(r: ContractorReturnIn, user: dict = Depends(require_write_access)):
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "contractor_id": r.contractor_id,
+        "date": r.date,
+        "amount": float(r.amount),
+        "method": r.method,
+        "notes": r.notes or "",
+        "created_at": now_utc().isoformat(),
+    }
+    await db.contractor_returns.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.delete("/contractor-returns/{rid}")
+async def del_creturn(rid: str, user: dict = Depends(require_write_access)):
+    await db.contractor_returns.delete_one({"id": rid, "user_id": user["user_id"]})
+    return {"ok": True}
+
 @api.get("/contractors/{cid}/ledger")
 async def contractor_ledger(cid: str, user: dict = Depends(get_current_user)):
     contractor = await db.contractors.find_one({"id": cid, "user_id": user["user_id"]}, {"_id": 0})
@@ -557,16 +593,24 @@ async def contractor_ledger(cid: str, user: dict = Depends(get_current_user)):
     payments = await db.contractor_payments.find(
         {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
     ).sort("date", -1).to_list(2000)
+    returns = await db.contractor_returns.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", -1).to_list(2000)
     total_visits = len(visits)
     total_workers_brought = sum(v.get("workers_count", 0) for v in visits)
     total_paid = sum(p["amount"] for p in payments)
+    total_returned = sum(r["amount"] for r in returns)
+    net_paid = total_paid - total_returned
     return {
         "contractor": contractor,
         "total_visits": total_visits,
         "total_workers_brought": total_workers_brought,
         "total_paid": round(total_paid, 2),
+        "total_returned": round(total_returned, 2),
+        "net_paid": round(net_paid, 2),
         "visits": visits,
         "payments": payments,
+        "returns": returns,
     }
 
 # ---------------- Attendance ----------------
@@ -672,16 +716,25 @@ async def del_return(rid: str, user: dict = Depends(require_write_access)):
 
 @api.post("/settlements")
 async def settle(s: SettlementIn, user: dict = Depends(require_write_access)):
+    """Zero out the worker's pending balance by recording the current pending
+    amount as a settlement. Ledger treats settlements as money paid out."""
+    worker = await db.workers.find_one({"id": s.worker_id, "user_id": user["user_id"]}, {"_id": 0})
+    if not worker:
+        raise HTTPException(404, "Worker not found")
+    led = await compute_worker_ledger(user["user_id"], worker)
+    pending = max(0.0, led["pending"])
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": user["user_id"],
         "worker_id": s.worker_id,
         "up_to_date": s.up_to_date,
+        "amount": round(pending, 2),
         "note": s.note or "",
         "created_at": now_utc().isoformat(),
     }
     await db.settlements.insert_one(doc)
-    return {"ok": True, "id": doc["id"]}
+    doc.pop("_id", None)
+    return {"ok": True, "id": doc["id"], "amount": doc["amount"]}
 
 @api.get("/settlements")
 async def list_settlements(user: dict = Depends(get_current_user), worker_id: Optional[str] = None):
@@ -720,18 +773,22 @@ async def compute_worker_ledger(user_id: str, worker: dict, start: Optional[str]
     total_advance = sum(a["amount"] for a in advances)
     returns = await db.advance_returns.find(adv_q, {"_id": 0}).sort("date", -1).to_list(5000)
     total_returned = sum(r["amount"] for r in returns)
-    net_advance = total_advance - total_returned
+    settlements = await db.settlements.find(adv_q, {"_id": 0}).sort("up_to_date", -1).to_list(5000)
+    total_settled = sum(s.get("amount", 0) or 0 for s in settlements)
+    net_advance = total_advance - total_returned + total_settled
     return {
         "worker": worker,
         "days_worked": round(days_worked, 2),
         "total_earned": round(total_earned, 2),
         "total_advance": round(total_advance, 2),
         "total_returned": round(total_returned, 2),
+        "total_settled": round(total_settled, 2),
         "net_advance": round(net_advance, 2),
         "pending": round(total_earned - net_advance, 2),
         "attendance": att,
         "advances": advances,
         "returns": returns,
+        "settlements": settlements,
     }
 
 @api.get("/ledger/{worker_id}")
@@ -821,8 +878,10 @@ async def report_pdf(user: dict = Depends(get_current_user), worker_id: Optional
         led = await compute_worker_ledger(user["user_id"], w)
         story.append(Paragraph(f"<b>{w['name']}</b> ({w.get('skill','')}) — Rate: Rs {w['daily_rate']}", styles["Heading3"]))
         summary = [
-            ["Days Worked", "Total Earned", "Advance Paid", "Pending"],
-            [led["days_worked"], f"Rs {led['total_earned']}", f"Rs {led['total_advance']}", f"Rs {led['pending']}"],
+            ["Days Worked", "Total Earned", "Advance", "Returned", "Settled", "Pending"],
+            [led["days_worked"], f"Rs {led['total_earned']}",
+             f"Rs {led['total_advance']}", f"Rs {led['total_returned']}",
+             f"Rs {led.get('total_settled', 0)}", f"Rs {led['pending']}"],
         ]
         t = Table(summary, hAlign="LEFT")
         t.setStyle(TableStyle([
@@ -833,19 +892,37 @@ async def report_pdf(user: dict = Depends(get_current_user), worker_id: Optional
             ("PADDING", (0,0), (-1,-1), 6),
         ]))
         story.append(t)
+
+        if led["advances"] or led["returns"]:
+            story.append(Spacer(1, 6))
+            story.append(Paragraph("<b>Advances & Returns</b>", styles["Normal"]))
+            rows = [["Date", "Type", "Amount", "Method", "Notes"]]
+            for a in sorted(led["advances"], key=lambda x: x["date"]):
+                rows.append([a["date"], "Advance", f"Rs {a['amount']}", a.get("method", ""), a.get("notes", "")])
+            for r in sorted(led["returns"], key=lambda x: x["date"]):
+                rows.append([r["date"], "Return", f"Rs {r['amount']}", r.get("method", ""), r.get("notes", "")])
+            tab = Table(rows, hAlign="LEFT")
+            tab.setStyle(TableStyle([
+                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")),
+                ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+                ("FONTSIZE", (0,0), (-1,-1), 9),
+                ("PADDING", (0,0), (-1,-1), 4),
+            ]))
+            story.append(tab)
         story.append(Spacer(1, 16))
 
     doc.build(story)
     buf.seek(0)
+    fname = "farm_report.pdf" if not worker_id else f"worker_{worker_id[:8]}.pdf"
     return StreamingResponse(buf, media_type="application/pdf",
-        headers={"Content-Disposition": "attachment; filename=farm_report.pdf"})
+        headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 @api.get("/reports/excel")
 async def report_excel(user: dict = Depends(get_current_user), worker_id: Optional[str] = None):
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
-    ws.append(["Worker", "Skill", "Daily Rate", "Days Worked", "Total Earned", "Advance", "Pending"])
+    ws.append(["Worker", "Skill", "Daily Rate", "Days Worked", "Total Earned", "Advance", "Returned", "Settled", "Pending"])
     workers_query = {"user_id": user["user_id"]}
     if worker_id:
         workers_query["id"] = worker_id
@@ -853,13 +930,141 @@ async def report_excel(user: dict = Depends(get_current_user), worker_id: Option
     for w in workers:
         led = await compute_worker_ledger(user["user_id"], w)
         ws.append([w["name"], w.get("skill",""), w["daily_rate"],
-                   led["days_worked"], led["total_earned"], led["total_advance"], led["pending"]])
+                   led["days_worked"], led["total_earned"],
+                   led["total_advance"], led["total_returned"],
+                   led.get("total_settled", 0), led["pending"]])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = "farm_report.xlsx" if not worker_id else f"worker_{worker_id[:8]}.xlsx"
+    return StreamingResponse(buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+@api.get("/reports/contractor/{cid}/pdf")
+async def contractor_pdf(cid: str, user: dict = Depends(get_current_user)):
+    contractor = await db.contractors.find_one({"id": cid, "user_id": user["user_id"]}, {"_id": 0})
+    if not contractor:
+        raise HTTPException(404, "Contractor not found")
+    visits = await db.contractor_visits.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", 1).to_list(2000)
+    payments = await db.contractor_payments.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", 1).to_list(2000)
+    returns = await db.contractor_returns.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", 1).to_list(2000)
+    total_workers = sum(v.get("workers_count", 0) for v in visits)
+    total_paid = sum(p["amount"] for p in payments)
+    total_returned = sum(r["amount"] for r in returns)
+    net_paid = total_paid - total_returned
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, title=f"Contractor · {contractor['name']}")
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph(f"Contractor Report — {contractor['name']}", styles["Title"]),
+        Paragraph(f"Mobile: {contractor.get('mobile','—')}", styles["Normal"]),
+        Paragraph(f"Generated: {now_utc().strftime('%Y-%m-%d %H:%M UTC')}", styles["Normal"]),
+        Spacer(1, 12),
+    ]
+    summary = [
+        ["Visits", "Total Workers", "Total Paid", "Returned", "Net Paid"],
+        [len(visits), total_workers, f"Rs {total_paid}", f"Rs {total_returned}", f"Rs {round(net_paid,2)}"],
+    ]
+    t = Table(summary, hAlign="LEFT")
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#2f6b3b")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+        ("PADDING", (0,0), (-1,-1), 6),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 14))
+
+    if visits:
+        story.append(Paragraph("<b>Visits</b>", styles["Heading4"]))
+        rows = [["Date", "Workers", "Field/Crop", "Notes"]]
+        for v in visits:
+            rows.append([v["date"], v.get("workers_count", 0), v.get("field_crop",""), v.get("notes","")])
+        vt = Table(rows, hAlign="LEFT")
+        vt.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")),
+            ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+            ("FONTSIZE", (0,0), (-1,-1), 9),
+            ("PADDING", (0,0), (-1,-1), 4),
+        ]))
+        story.append(vt)
+        story.append(Spacer(1, 12))
+
+    if payments or returns:
+        story.append(Paragraph("<b>Payments & Returns</b>", styles["Heading4"]))
+        rows = [["Date", "Type", "Amount", "Method", "Notes"]]
+        for p in payments:
+            rows.append([p["date"], "Payment", f"Rs {p['amount']}", p.get("method",""), p.get("notes","")])
+        for r in returns:
+            rows.append([r["date"], "Return", f"Rs {r['amount']}", r.get("method",""), r.get("notes","")])
+        pt = Table(rows, hAlign="LEFT")
+        pt.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")),
+            ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+            ("FONTSIZE", (0,0), (-1,-1), 9),
+            ("PADDING", (0,0), (-1,-1), 4),
+        ]))
+        story.append(pt)
+
+    doc.build(story)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=contractor_{cid[:8]}.pdf"})
+
+@api.get("/reports/contractor/{cid}/excel")
+async def contractor_excel(cid: str, user: dict = Depends(get_current_user)):
+    contractor = await db.contractors.find_one({"id": cid, "user_id": user["user_id"]}, {"_id": 0})
+    if not contractor:
+        raise HTTPException(404, "Contractor not found")
+    visits = await db.contractor_visits.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", 1).to_list(2000)
+    payments = await db.contractor_payments.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", 1).to_list(2000)
+    returns = await db.contractor_returns.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", 1).to_list(2000)
+
+    wb = Workbook()
+    s1 = wb.active
+    s1.title = "Summary"
+    s1.append(["Contractor", contractor["name"]])
+    s1.append(["Mobile", contractor.get("mobile", "")])
+    s1.append(["Visits", len(visits)])
+    s1.append(["Total Workers Brought", sum(v.get("workers_count", 0) for v in visits)])
+    s1.append(["Total Paid", sum(p["amount"] for p in payments)])
+    s1.append(["Total Returned", sum(r["amount"] for r in returns)])
+
+    s2 = wb.create_sheet("Visits")
+    s2.append(["Date", "Workers", "Field/Crop", "Notes"])
+    for v in visits:
+        s2.append([v["date"], v.get("workers_count", 0), v.get("field_crop",""), v.get("notes","")])
+
+    s3 = wb.create_sheet("Payments")
+    s3.append(["Date", "Amount", "Method", "Notes"])
+    for p in payments:
+        s3.append([p["date"], p["amount"], p.get("method",""), p.get("notes","")])
+
+    s4 = wb.create_sheet("Returns")
+    s4.append(["Date", "Amount", "Method", "Notes"])
+    for r in returns:
+        s4.append([r["date"], r["amount"], r.get("method",""), r.get("notes","")])
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
     return StreamingResponse(buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=farm_report.xlsx"})
+        headers={"Content-Disposition": f"attachment; filename=contractor_{cid[:8]}.xlsx"})
 
 @api.get("/reports/whatsapp/{worker_id}")
 async def whatsapp_text(worker_id: str, user: dict = Depends(get_current_user), lang: str = "en"):

@@ -1,0 +1,36 @@
+{
+  "summary": "Round 2 regression: verified Mark Settled bug fix (logic + UI overflow), per-worker PDF, worker Advance Return, contractor Return, contractor PDF/Excel, and Ad carousel hold-to-pause + swipe + autoplay. Backend: 7/7 pytest passed. Frontend: full E2E via OTP → profile → workers → attendance → ledger settle → contractors covered, all assertions passed on 420x900 viewport.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dialogs (Advance/Contractor)", "issues": ["Console warning: DialogContent missing Description/aria-describedby (a11y warning, not blocker)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: add DialogDescription/aria-describedby to shadcn Dialogs to silence a11y warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py is ~1200 lines - consider splitting into modules (auth, contractors, reports, ledger).",
+    "compute_worker_ledger sums total_settled into net_advance to zero pending - correct math but implicit; add a docstring/unit test to prevent regression.",
+    "OTP send returns dev_otp in response (fine for dev), ensure this is gated behind env flag before production."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Uses ephemeral OTP flow; each test run creates a new user via /api/auth/otp/send + /api/auth/otp/verify (dev_otp returned in response).",
+  "seed_data_creation": "Each pytest run creates TEST_ prefixed workers/contractors/attendance/advances/returns/settlements/payments. Not cleaned up (dev DB).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "backend_test.py covers settlement=0 pending, worker return, per-worker PDF filename, contractor return/net_paid, contractor PDF+Excel, /ads. UI test flow: OTP -> profile-setup (Bengaluru Urban) -> /workers add worker -> /attendance click first Present -> /ledger row exercises Mark Settled (full-width, no truncation, pending -> ₹0) -> /workers (contractors section) add contractor -> detail shows contractor-pdf-btn/excel-btn and cpay-mode toggles. AdCarousel: hold-to-pause verified (Paused badge shows on mouse down, disappears on release), autoplay 10s, swipe advances.",
+  "rca of the issue": "N/A - all previously-reported bug fixes verified as fixed. Mark Settled math: POST /settlements records max(0, pending) into settlements collection; compute_worker_ledger adds total_settled to net_advance so pending = earned - (advance - returned + settled) collapses to 0 on next GET /ledger/{worker_id}. UI: settle button uses col-span-2 (full width row 3 of 2-col grid) so no truncation on 420px viewport."
+}

@@ -11,7 +11,7 @@ import {
 import { toast } from "sonner";
 import {
   Plus, HardHat, CalendarPlus, CurrencyInr, Trash,
-  Users, Wallet, X, ArrowLeft,
+  Users, Wallet, X, ArrowLeft, FilePdf, MicrosoftExcelLogo, ArrowUUpLeft,
 } from "@phosphor-icons/react";
 
 const emptyContractor = { name: "", mobile: "", notes: "" };
@@ -156,6 +156,7 @@ function ContractorDetail({ id, onClose }) {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("visits");
   const [visitForm, setVisitForm] = useState({ date: today(), workers_count: "", field_crop: "", notes: "" });
+  const [payMode, setPayMode] = useState("payment"); // "payment" | "return"
   const [payForm, setPayForm] = useState({ date: today(), amount: "", method: "cash", notes: "" });
 
   const load = () => axios.get(`${API}/contractors/${id}/ledger`).then(r => setData(r.data));
@@ -177,7 +178,8 @@ function ContractorDetail({ id, onClose }) {
 
   const addPayment = async () => {
     if (!payForm.amount) return toast.error(lang === "kn" ? "ಮೊತ್ತ ಬೇಕು" : "Amount required");
-    await axios.post(`${API}/contractor-payments`, {
+    const path = payMode === "return" ? "/contractor-returns" : "/contractor-payments";
+    await axios.post(`${API}${path}`, {
       contractor_id: id,
       date: payForm.date,
       amount: parseFloat(payForm.amount),
@@ -196,6 +198,19 @@ function ContractorDetail({ id, onClose }) {
   const delPayment = async (pid) => {
     await axios.delete(`${API}/contractor-payments/${pid}`);
     load();
+  };
+  const delReturn = async (rid) => {
+    await axios.delete(`${API}/contractor-returns/${rid}`);
+    load();
+  };
+
+  const downloadFile = async (path, filename) => {
+    const url = `${API}${path}`;
+    const r = await axios.get(url, { responseType: "blob" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(r.data);
+    link.download = filename;
+    link.click();
   };
 
   return (
@@ -226,8 +241,28 @@ function ContractorDetail({ id, onClose }) {
               label={lang === "kn" ? "ಒಟ್ಟು ಕಾರ್ಮಿಕರು" : "Total workers"}
               val={data?.total_workers_brought ?? "—"} />
             <SummaryStat icon={Wallet}
-              label={lang === "kn" ? "ಪಾವತಿ" : "Paid"}
-              val={data ? `₹${data.total_paid}` : "—"} accent />
+              label={lang === "kn" ? "ನಿವ್ವಳ ಪಾವತಿ" : "Net paid"}
+              val={data ? `₹${data.net_paid ?? data.total_paid}` : "—"} accent />
+          </div>
+          {data && (data.total_returned || 0) > 0 && (
+            <div className="text-[11px] text-muted-foreground -mt-2">
+              {lang === "kn" ? "ವಾಪಸಾತಿ" : "Returned"}: <span className="text-[hsl(var(--primary))] font-semibold">₹{data.total_returned}</span>
+              <span className="mx-1">·</span>
+              {lang === "kn" ? "ಒಟ್ಟು ಪಾವತಿ" : "Total paid"}: ₹{data.total_paid}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button data-testid="contractor-pdf-btn"
+              onClick={() => downloadFile(`/reports/contractor/${id}/pdf`, `${data?.contractor?.name || "contractor"}.pdf`)}
+              variant="outline" className="w-full min-h-[40px] rounded-lg">
+              <FilePdf size={16} className="mr-1"/>PDF
+            </Button>
+            <Button data-testid="contractor-excel-btn"
+              onClick={() => downloadFile(`/reports/contractor/${id}/excel`, `${data?.contractor?.name || "contractor"}.xlsx`)}
+              variant="outline" className="w-full min-h-[40px] rounded-lg">
+              <MicrosoftExcelLogo size={16} className="mr-1"/>Excel
+            </Button>
           </div>
 
           <div className="grid grid-cols-2 gap-2 p-1 bg-secondary/50 rounded-lg">
@@ -303,6 +338,16 @@ function ContractorDetail({ id, onClose }) {
             <>
               {!locked && (
                 <div className="rounded-xl border border-border bg-card p-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-secondary/50 rounded-lg">
+                    <button data-testid="cpay-mode-payment" onClick={() => setPayMode("payment")}
+                      className={`min-h-[36px] rounded-md text-xs font-medium transition-colors ${payMode === "payment" ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
+                      {lang === "kn" ? "ಪಾವತಿ" : "Payment out"}
+                    </button>
+                    <button data-testid="cpay-mode-return" onClick={() => setPayMode("return")}
+                      className={`min-h-[36px] rounded-md text-xs font-medium transition-colors ${payMode === "return" ? "bg-white shadow-sm" : "text-muted-foreground"}`}>
+                      {lang === "kn" ? "ವಾಪಸಾತಿ" : "Return in"}
+                    </button>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <Input data-testid="pay-date" type="date" value={payForm.date}
                       onChange={e => setPayForm({...payForm, date: e.target.value})}
@@ -326,7 +371,10 @@ function ContractorDetail({ id, onClose }) {
                     onChange={e => setPayForm({...payForm, notes: e.target.value})}/>
                   <Button data-testid="add-payment-btn" onClick={addPayment}
                     className="w-full min-h-[44px] rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90">
-                    <CurrencyInr size={16} className="mr-1"/>{lang === "kn" ? "ಪಾವತಿ ಸೇರಿಸಿ" : "Record payment"}
+                    {payMode === "return"
+                      ? <><ArrowUUpLeft size={16} className="mr-1"/>{lang === "kn" ? "ವಾಪಸಾತಿ ಸೇರಿಸಿ" : "Record return"}</>
+                      : <><CurrencyInr size={16} className="mr-1"/>{lang === "kn" ? "ಪಾವತಿ ಸೇರಿಸಿ" : "Record payment"}</>
+                    }
                   </Button>
                 </div>
               )}
@@ -352,7 +400,31 @@ function ContractorDetail({ id, onClose }) {
                       </button>
                     )}
                   </div>
-                )) : (
+                )) : null}
+
+                {data?.returns?.map(r => (
+                  <div key={r.id} data-testid={`creturn-${r.id}`} className="rounded-lg border border-[hsl(var(--primary))]/30 bg-[hsl(var(--primary))]/5 px-3 py-3 flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-md bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] grid place-items-center">
+                      <ArrowUUpLeft size={16} weight="duotone"/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-[hsl(var(--primary))]">
+                        + ₹{r.amount} <span className="text-muted-foreground text-xs">· {r.method?.toUpperCase()}</span>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        {r.date} · {lang === "kn" ? "ವಾಪಸಾತಿ" : "Return"}{r.notes ? ` · ${r.notes}` : ""}
+                      </div>
+                    </div>
+                    {!locked && (
+                      <button onClick={() => delReturn(r.id)}
+                        className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-[hsl(var(--accent))]/10 hover:text-[hsl(var(--accent))]">
+                        <X size={14}/>
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {!(data?.payments?.length || data?.returns?.length) && (
                   <div className="text-center text-xs text-muted-foreground py-6">
                     {lang === "kn" ? "ಇನ್ನೂ ಪಾವತಿಗಳಿಲ್ಲ" : "No payments yet"}
                   </div>
