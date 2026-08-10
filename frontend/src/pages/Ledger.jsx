@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CaretRight, User, Wallet, WhatsappLogo, FilePdf, MicrosoftExcelLogo, Plus } from "@phosphor-icons/react";
+import { CaretRight, User, Wallet, WhatsappLogo, FilePdf, MicrosoftExcelLogo, Plus, ArrowUUpLeft } from "@phosphor-icons/react";
 
 export default function Ledger() {
   const { t, user, API, lang } = useApp();
@@ -18,6 +18,7 @@ export default function Ledger() {
   const [ledgers, setLedgers] = useState({});
   const [selected, setSelected] = useState(null);
   const [advOpen, setAdvOpen] = useState(false);
+  const [mode, setMode] = useState("advance"); // "advance" | "return"
   const [adv, setAdv] = useState({ amount: "", method: "cash", notes: "", date: new Date().toISOString().slice(0,10) });
 
   const loadAll = async () => {
@@ -30,11 +31,17 @@ export default function Ledger() {
   };
   useEffect(() => { loadAll(); }, []);
 
-  const openAdvance = (w) => { setSelected(w); setAdv({ amount: "", method: "cash", notes: "", date: new Date().toISOString().slice(0,10) }); setAdvOpen(true); };
+  const openAdvance = (w, initialMode = "advance") => {
+    setSelected(w);
+    setMode(initialMode);
+    setAdv({ amount: "", method: "cash", notes: "", date: new Date().toISOString().slice(0,10) });
+    setAdvOpen(true);
+  };
   const saveAdvance = async () => {
     if (!adv.amount) return toast.error("Amount required");
+    const path = mode === "return" ? "/returns" : "/advances";
     try {
-      await axios.post(`${API}/advances`, {
+      await axios.post(`${API}${path}`, {
         worker_id: selected.id,
         date: adv.date,
         amount: parseFloat(adv.amount),
@@ -42,7 +49,7 @@ export default function Ledger() {
         notes: adv.notes,
       });
       setAdvOpen(false);
-      toast.success(t("saved"));
+      toast.success(mode === "return" ? (lang === "kn" ? "ವಾಪಸಾತಿ ಉಳಿಸಲಾಗಿದೆ" : "Return saved") : t("saved"));
       loadAll();
     } catch { toast.error("Failed"); }
   };
@@ -116,14 +123,26 @@ export default function Ledger() {
                 <div className="grid grid-cols-4 gap-2 text-center">
                   <Stat label={t("days_worked")} val={l?.days_worked ?? "—"} />
                   <Stat label={t("total_earned")} val={l ? `₹${l.total_earned}` : "—"} />
-                  <Stat label={t("advance_paid")} val={l ? `₹${l.total_advance}` : "—"} accent />
+                  <Stat label={lang === "kn" ? "ನಿವ್ವಳ ಮುಂಗಡ" : "Net advance"} val={l ? `₹${l.net_advance ?? l.total_advance}` : "—"} accent />
                   <Stat label={t("pending")} val={l ? `₹${l.pending}` : "—"} primary />
                 </div>
+                {l && (l.total_returned || 0) > 0 && (
+                  <div className="text-[11px] text-muted-foreground -mt-1">
+                    {lang === "kn" ? "ವಾಪಸಾತಿ" : "Returned"}: <span className="text-[hsl(var(--primary))] font-semibold">₹{l.total_returned}</span>
+                    <span className="mx-1">·</span>
+                    {lang === "kn" ? "ಒಟ್ಟು ಮುಂಗಡ" : "Total advance"}: ₹{l.total_advance}
+                  </div>
+                )}
 
                 <div className="flex gap-2 pt-1">
                   {!locked && (
-                    <Button data-testid={`add-adv-${w.id}`} onClick={() => openAdvance(w)} size="sm" variant="outline" className="flex-1 rounded-lg">
+                    <Button data-testid={`add-adv-${w.id}`} onClick={() => openAdvance(w, "advance")} size="sm" variant="outline" className="flex-1 rounded-lg">
                       <Plus size={14} className="mr-1"/>{t("record_advance")}
+                    </Button>
+                  )}
+                  {!locked && (
+                    <Button data-testid={`add-ret-${w.id}`} onClick={() => openAdvance(w, "return")} size="sm" variant="outline" className="flex-1 rounded-lg border-[hsl(var(--primary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/5">
+                      <ArrowUUpLeft size={14} className="mr-1"/>{lang === "kn" ? "ವಾಪಸಾತಿ" : "Return"}
                     </Button>
                   )}
                   <Button data-testid={`wa-${w.id}`} onClick={() => whatsappShare(w)} size="sm" variant="outline" className="rounded-lg">
@@ -144,8 +163,24 @@ export default function Ledger() {
       <Dialog open={advOpen} onOpenChange={setAdvOpen}>
         <DialogContent className="max-w-[92%] rounded-xl">
           <DialogHeader>
-            <DialogTitle>{t("record_advance")} — {selected?.name}</DialogTitle>
+            <DialogTitle>
+              {mode === "return"
+                ? (lang === "kn" ? "ವಾಪಸಾತಿ ದಾಖಲಿಸಿ" : "Record Return")
+                : t("record_advance")} — {selected?.name}
+            </DialogTitle>
           </DialogHeader>
+
+          <div className="grid grid-cols-2 gap-2 p-1 bg-secondary/50 rounded-lg">
+            <button data-testid="mode-advance-btn" onClick={() => setMode("advance")}
+              className={`min-h-[40px] rounded-md text-sm font-medium transition-colors ${mode === "advance" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground"}`}>
+              {lang === "kn" ? "ಮುಂಗಡ" : "Advance out"}
+            </button>
+            <button data-testid="mode-return-btn" onClick={() => setMode("return")}
+              className={`min-h-[40px] rounded-md text-sm font-medium transition-colors ${mode === "return" ? "bg-white shadow-sm text-foreground" : "text-muted-foreground"}`}>
+              {lang === "kn" ? "ವಾಪಸಾತಿ" : "Return in"}
+            </button>
+          </div>
+
           <div className="space-y-3">
             <div>
               <Label className="text-xs uppercase tracking-[0.15em] text-muted-foreground">{t("amount")}</Label>

@@ -12,6 +12,7 @@ export default function AdCarousel() {
   const [idx, setIdx] = useState(0);
   const [drag, setDrag] = useState(0);      // live pointer offset in px
   const [dragging, setDragging] = useState(false);
+  const [held, setHeld] = useState(false);  // true while pointer is pressed on the carousel
   const startX = useRef(null);
   const timerRef = useRef(null);
   const trackRef = useRef(null);
@@ -26,19 +27,20 @@ export default function AdCarousel() {
 
   const goTo = (i) => setIdx(((i % ads.length) + ads.length) % ads.length);
 
-  // autoplay — paused while user is swiping
+  // autoplay — paused while user is holding OR swiping the carousel
   useEffect(() => {
-    if (ads.length <= 1 || dragging) return;
+    if (ads.length <= 1 || dragging || held) return;
     timerRef.current = setInterval(() => {
       setIdx(i => (i + 1) % ads.length);
     }, AUTOPLAY_MS);
     return () => clearInterval(timerRef.current);
-  }, [ads.length, dragging, idx]);
+  }, [ads.length, dragging, held, idx]);
 
   const onPointerDown = (e) => {
     if (ads.length <= 1) return;
     startX.current = e.clientX ?? e.touches?.[0]?.clientX;
     if (startX.current == null) return;
+    setHeld(true);           // pause autoplay immediately on press ("hold to pause")
     setDragging(true);
     setDrag(0);
     try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* ignore */ }
@@ -56,6 +58,7 @@ export default function AdCarousel() {
     else if (drag < -SWIPE_THRESHOLD) goTo(idx + 1);
     setDrag(0);
     setDragging(false);
+    setHeld(false);          // resume autoplay
     startX.current = null;
     void width;
   };
@@ -67,6 +70,11 @@ export default function AdCarousel() {
 
   return (
     <div data-testid="ads-carousel" className="rounded-xl border border-border overflow-hidden bg-card relative select-none">
+      {held && (
+        <div className="absolute top-2 right-2 z-10 bg-black/50 text-white text-[10px] uppercase tracking-wider px-2 py-1 rounded-full pointer-events-none">
+          Paused
+        </div>
+      )}
       <div
         ref={trackRef}
         className="relative h-64 sm:h-72 overflow-hidden touch-pan-y cursor-grab active:cursor-grabbing"

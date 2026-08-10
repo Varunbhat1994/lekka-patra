@@ -431,7 +431,143 @@ async def delete_worker(worker_id: str, user: dict = Depends(require_write_acces
     await db.workers.delete_one({"id": worker_id, "user_id": user["user_id"]})
     await db.attendance.delete_many({"worker_id": worker_id, "user_id": user["user_id"]})
     await db.advances.delete_many({"worker_id": worker_id, "user_id": user["user_id"]})
+    await db.advance_returns.delete_many({"worker_id": worker_id, "user_id": user["user_id"]})
     return {"ok": True}
+
+# ---------------- Contractors ----------------
+class ContractorIn(BaseModel):
+    name: str
+    mobile: Optional[str] = ""
+    notes: Optional[str] = ""
+
+class VisitIn(BaseModel):
+    contractor_id: str
+    date: str
+    workers_count: int
+    field_crop: Optional[str] = ""
+    notes: Optional[str] = ""
+
+class ContractorPaymentIn(BaseModel):
+    contractor_id: str
+    date: str
+    amount: float
+    method: str = "cash"
+    notes: Optional[str] = ""
+
+@api.get("/contractors")
+async def list_contractors(user: dict = Depends(get_current_user)):
+    rows = await db.contractors.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return rows
+
+@api.post("/contractors")
+async def create_contractor(c: ContractorIn, user: dict = Depends(require_write_access)):
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "name": c.name,
+        "mobile": c.mobile or "",
+        "notes": c.notes or "",
+        "created_at": now_utc().isoformat(),
+    }
+    await db.contractors.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.put("/contractors/{cid}")
+async def update_contractor(cid: str, c: ContractorIn, user: dict = Depends(require_write_access)):
+    res = await db.contractors.update_one(
+        {"id": cid, "user_id": user["user_id"]},
+        {"$set": {"name": c.name, "mobile": c.mobile or "", "notes": c.notes or ""}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Contractor not found")
+    return {"ok": True}
+
+@api.delete("/contractors/{cid}")
+async def del_contractor(cid: str, user: dict = Depends(require_write_access)):
+    await db.contractors.delete_one({"id": cid, "user_id": user["user_id"]})
+    await db.contractor_visits.delete_many({"contractor_id": cid, "user_id": user["user_id"]})
+    await db.contractor_payments.delete_many({"contractor_id": cid, "user_id": user["user_id"]})
+    return {"ok": True}
+
+@api.get("/contractor-visits")
+async def list_visits(contractor_id: str, user: dict = Depends(get_current_user)):
+    rows = await db.contractor_visits.find(
+        {"contractor_id": contractor_id, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", -1).to_list(2000)
+    return rows
+
+@api.post("/contractor-visits")
+async def add_visit(v: VisitIn, user: dict = Depends(require_write_access)):
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "contractor_id": v.contractor_id,
+        "date": v.date,
+        "workers_count": int(v.workers_count),
+        "field_crop": v.field_crop or "",
+        "notes": v.notes or "",
+        "created_at": now_utc().isoformat(),
+    }
+    await db.contractor_visits.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.delete("/contractor-visits/{vid}")
+async def del_visit(vid: str, user: dict = Depends(require_write_access)):
+    await db.contractor_visits.delete_one({"id": vid, "user_id": user["user_id"]})
+    return {"ok": True}
+
+@api.get("/contractor-payments")
+async def list_cpayments(contractor_id: str, user: dict = Depends(get_current_user)):
+    rows = await db.contractor_payments.find(
+        {"contractor_id": contractor_id, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", -1).to_list(2000)
+    return rows
+
+@api.post("/contractor-payments")
+async def add_cpayment(p: ContractorPaymentIn, user: dict = Depends(require_write_access)):
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "contractor_id": p.contractor_id,
+        "date": p.date,
+        "amount": float(p.amount),
+        "method": p.method,
+        "notes": p.notes or "",
+        "created_at": now_utc().isoformat(),
+    }
+    await db.contractor_payments.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.delete("/contractor-payments/{pid}")
+async def del_cpayment(pid: str, user: dict = Depends(require_write_access)):
+    await db.contractor_payments.delete_one({"id": pid, "user_id": user["user_id"]})
+    return {"ok": True}
+
+@api.get("/contractors/{cid}/ledger")
+async def contractor_ledger(cid: str, user: dict = Depends(get_current_user)):
+    contractor = await db.contractors.find_one({"id": cid, "user_id": user["user_id"]}, {"_id": 0})
+    if not contractor:
+        raise HTTPException(404, "Contractor not found")
+    visits = await db.contractor_visits.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", -1).to_list(2000)
+    payments = await db.contractor_payments.find(
+        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", -1).to_list(2000)
+    total_visits = len(visits)
+    total_workers_brought = sum(v.get("workers_count", 0) for v in visits)
+    total_paid = sum(p["amount"] for p in payments)
+    return {
+        "contractor": contractor,
+        "total_visits": total_visits,
+        "total_workers_brought": total_workers_brought,
+        "total_paid": round(total_paid, 2),
+        "visits": visits,
+        "payments": payments,
+    }
 
 # ---------------- Attendance ----------------
 @api.get("/attendance")
@@ -497,6 +633,43 @@ async def del_advance(adv_id: str, user: dict = Depends(require_write_access)):
     await db.advances.delete_one({"id": adv_id, "user_id": user["user_id"]})
     return {"ok": True}
 
+# ---- Advance Returns (money returned back by the worker) ----
+class ReturnIn(BaseModel):
+    worker_id: str
+    date: str
+    amount: float
+    method: str = "cash"
+    notes: Optional[str] = ""
+
+@api.get("/returns")
+async def list_returns(user: dict = Depends(get_current_user), worker_id: Optional[str] = None):
+    q = {"user_id": user["user_id"]}
+    if worker_id:
+        q["worker_id"] = worker_id
+    rows = await db.advance_returns.find(q, {"_id": 0}).sort("date", -1).to_list(5000)
+    return rows
+
+@api.post("/returns")
+async def create_return(r: ReturnIn, user: dict = Depends(require_write_access)):
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user["user_id"],
+        "worker_id": r.worker_id,
+        "date": r.date,
+        "amount": r.amount,
+        "method": r.method,
+        "notes": r.notes or "",
+        "created_at": now_utc().isoformat(),
+    }
+    await db.advance_returns.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api.delete("/returns/{rid}")
+async def del_return(rid: str, user: dict = Depends(require_write_access)):
+    await db.advance_returns.delete_one({"id": rid, "user_id": user["user_id"]})
+    return {"ok": True}
+
 @api.post("/settlements")
 async def settle(s: SettlementIn, user: dict = Depends(require_write_access)):
     doc = {
@@ -545,14 +718,20 @@ async def compute_worker_ledger(user_id: str, worker: dict, start: Optional[str]
     adv_q = {"user_id": user_id, "worker_id": worker["id"]}
     advances = await db.advances.find(adv_q, {"_id": 0}).to_list(5000)
     total_advance = sum(a["amount"] for a in advances)
+    returns = await db.advance_returns.find(adv_q, {"_id": 0}).sort("date", -1).to_list(5000)
+    total_returned = sum(r["amount"] for r in returns)
+    net_advance = total_advance - total_returned
     return {
         "worker": worker,
         "days_worked": round(days_worked, 2),
         "total_earned": round(total_earned, 2),
         "total_advance": round(total_advance, 2),
-        "pending": round(total_earned - total_advance, 2),
+        "total_returned": round(total_returned, 2),
+        "net_advance": round(net_advance, 2),
+        "pending": round(total_earned - net_advance, 2),
         "attendance": att,
         "advances": advances,
+        "returns": returns,
     }
 
 @api.get("/ledger/{worker_id}")

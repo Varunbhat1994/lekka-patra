@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Plus, PencilSimple, Trash, User } from "@phosphor-icons/react";
+import ContractorsSection from "@/pages/ContractorsSection";
 
 const empty = { name: "", mobile: "", skill: "", daily_rate: "" };
 
@@ -94,6 +95,8 @@ export default function Workers() {
             </div>
           ))}
         </div>
+
+        <ContractorsSection />
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
