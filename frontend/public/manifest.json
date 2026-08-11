@@ -3,14 +3,26 @@
   "name": "Lekka Patra · ಲೆಕ್ಕ ಪತ್ರ",
   "description": "Farm labor attendance, wages and advances tracker",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#f7f7f5",
-  "theme_color": "#2f6b3b",
+  "orientation": "portrait",
+  "background_color": "#1c683b",
+  "theme_color": "#1c683b",
   "icons": [
-    {
-      "src": "favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
-    }
+    { "src": "/favicon.ico", "sizes": "16x16 32x32 48x48 64x64", "type": "image/x-icon" },
+    { "src": "/icons/icon-64.png", "sizes": "64x64", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-96.png", "sizes": "96x96", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-128.png", "sizes": "128x128", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-144.png", "sizes": "144x144", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-152.png", "sizes": "152x152", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-256.png", "sizes": "256x256", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-384.png", "sizes": "384x384", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "maskable" }
   ]
 }
