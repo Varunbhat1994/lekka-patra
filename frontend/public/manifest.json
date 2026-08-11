@@ -1,0 +1,16 @@
+{
+  "short_name": "Lekka Patra",
+  "name": "Lekka Patra · ಲೆಕ್ಕ ಪತ್ರ",
+  "description": "Farm labor attendance, wages and advances tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f7f5",
+  "theme_color": "#2f6b3b",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

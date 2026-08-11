@@ -27,7 +27,7 @@ export default function Login() {
             <div className="h-9 w-9 rounded-lg bg-white/20 backdrop-blur-md grid place-items-center border border-white/30">
               <Plant size={20} weight="duotone" />
             </div>
-            <span className="font-semibold tracking-tight">FarmLog</span>
+            <span className="font-semibold tracking-tight">Lekka Patra</span>
           </div>
         </div>
 
@@ -74,7 +74,7 @@ export default function Login() {
           </div>
 
           <div className="mt-8 space-y-3 text-sm">
-            <FeatureRow txt={lang === "kn" ? "5 ದಿನಗಳ ಉಚಿತ ಟ್ರಯಲ್" : "5-day free trial"} />
+            <FeatureRow txt={lang === "kn" ? "15 ದಿನಗಳ ಉಚಿತ ಟ್ರಯಲ್" : "15-day free trial"} />
             <FeatureRow txt={lang === "kn" ? "ಡೇಟಾ ಕ್ಲೌಡ್‌ನಲ್ಲಿ ಸಂಗ್ರಹ" : "Data saved to cloud"} />
             <FeatureRow txt={lang === "kn" ? "PDF / Excel ರಫ್ತು" : "PDF & Excel export"} />
           </div>

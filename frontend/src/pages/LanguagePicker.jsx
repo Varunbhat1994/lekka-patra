@@ -19,8 +19,8 @@ export default function LanguagePicker() {
             <Plant size={22} weight="duotone" />
           </div>
           <div>
-            <div className="text-xl font-semibold tracking-tight">FarmLog</div>
-            <div className="text-xs text-muted-foreground uppercase tracking-[0.2em]">ಫಾರ್ಮ್‌ಲಾಗ್</div>
+            <div className="text-xl font-semibold tracking-tight">Lekka Patra</div>
+            <div className="text-xs text-muted-foreground uppercase tracking-[0.2em]">ಲೆಕ್ಕ ಪತ್ರ</div>
           </div>
         </div>
 

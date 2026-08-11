@@ -1877,7 +1877,7 @@ async def owner_feedback(user: dict = Depends(require_owner)):
 # ---------------- Health ----------------
 @api.get("/")
 async def root():
-    return {"status": "ok", "app": "Farm Labor Tracker"}
+    return {"status": "ok", "app": "Lekka Patra"}
 
 @api.get("/health")
 async def health():

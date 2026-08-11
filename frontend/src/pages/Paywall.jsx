@@ -38,7 +38,7 @@ export default function Paywall() {
         key: order.key_id,
         amount: order.amount,
         currency: order.currency,
-        name: "FarmLog",
+        name: "Lekka Patra",
         description: "Lifetime access",
         order_id: order.order_id,
         prefill: order.prefill || {},

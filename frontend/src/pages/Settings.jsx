@@ -202,7 +202,7 @@ export default function Settings() {
         </Button>
 
         <div className="text-center text-[11px] text-muted-foreground pt-4">
-          FarmLog · v1.0
+          Lekka Patra · ಲೆಕ್ಕ ಪತ್ರ · v1.0
         </div>
       </div>
 

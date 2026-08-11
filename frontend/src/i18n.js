@@ -1,6 +1,6 @@
 export const translations = {
   en: {
-    app_name: "FarmLog",
+    app_name: "Lekka Patra",
     tagline: "Track your farm labor, wages, and advances",
     choose_language: "Choose your language",
     continue: "Continue",
@@ -70,7 +70,7 @@ export const translations = {
     lifetime_price: "₹99 / year",
   },
   kn: {
-    app_name: "ಫಾರ್ಮ್‌ಲಾಗ್",
+    app_name: "ಲೆಕ್ಕ ಪತ್ರ",
     tagline: "ನಿಮ್ಮ ತೋಟದ ಕೆಲಸಗಾರರು, ಸಂಬಳ ಮತ್ತು ಮುಂಗಡ ಪಾವತಿ ನಿರ್ವಹಿಸಿ",
     choose_language: "ನಿಮ್ಮ ಭಾಷೆ ಆಯ್ಕೆಮಾಡಿ",
     continue: "ಮುಂದುವರೆಸಿ",
