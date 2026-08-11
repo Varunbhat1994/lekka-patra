@@ -1,0 +1,25 @@
+{
+  "summary": "Iteration 10 Owner Portal (RBAC) fully verified end-to-end. Backend: 14/14 pytest cases pass covering RBAC (401/403), /auth/me is_owner promotion via OWNER_MOBILE, owner users list (shape+sort), district analytics (totals+row sort), ads CRUD incl. invalid-district 400, PATCH toggle, public /api/ads district filter, feedback inbox aggregation. Frontend: Owner OTP login → Settings owner-portal-link visible → /owner tabs all render (50 users, 8 districts, existing ads, 12 feedback). Ad upload via ad-file-input + Mysuru chip + submit-ad-btn creates ad; del-ad-<id> after confirm removes it. Non-owner user: owner-portal-link hidden in /settings and /owner redirects to /dashboard.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10_owner.py",
+    "/app/test_reports/pytest/iteration10_owner.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1634 lines — approaching maintainability limits; consider splitting into routers (owner.py, ads.py, contractors.py, reports.py).",
+    "PATCH /api/owner/ads/{aid}?active=... uses a raw bool query param. Works, but exposing it as JSON body would be more RESTful and avoids client-side URL truthiness bugs (e.g., FastAPI accepts 'false'/'true' strings).",
+    "Owner ads DELETE does not verify ad ownership scoping — fine here since only owner can call it, but if RBAC ever loosens this is a foot-gun.",
+    "OwnerAds base64 size cap is 1.8 MB encoded; frontend caps at 1 MB unencoded — consistent, but no server-side content-type check on data URLs.",
+    "OTP `dev_otp` returned in response is intentional dev-mode but should be gated behind an env flag before production."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (all owner flows pass)"},
+  "test_credentials": "OTP dev flow. Owner mobile: 9700000030 (normalized 919700000030). Any other 10-digit number = non-owner. dev_otp is returned by /api/auth/otp/send.",
+  "seed_data_creation": "Test data prefixed TEST_/TEST-. Ad TEST UI Ad created and deleted in same run; feedback TEST-fb entries persist for owner-inbox verification (safe to leave).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file /app/backend/tests/test_iteration10_owner.py must be run with -n 0 (single worker) because scope=module owner OTP fixture races against xdist LoadScope splitting. All other iteration files still work in default parallel mode.",
+  "rca of the issue": "N/A — no bugs found in Iteration 10."
+}

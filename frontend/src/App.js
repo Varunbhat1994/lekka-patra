@@ -8,6 +8,7 @@ import Login from "@/pages/Login";
 import OtpLogin from "@/pages/OtpLogin";
 import ProfileSetup from "@/pages/ProfileSetup";
 import AuthCallback from "@/pages/AuthCallback";
+import OwnerPortal from "@/pages/OwnerPortal";
 import Dashboard from "@/pages/Dashboard";
 import Workers from "@/pages/Workers";
 import Attendance from "@/pages/Attendance";
@@ -54,6 +55,7 @@ function AppRouter() {
       <Route path="/paywall" element={<Protected><Paywall /></Protected>} />
       <Route path="/payment/success" element={<Protected><PaymentSuccess /></Protected>} />
       <Route path="/payment/cancel" element={<Protected><PaymentCancel /></Protected>} />
+      <Route path="/owner" element={<Protected><OwnerPortal /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

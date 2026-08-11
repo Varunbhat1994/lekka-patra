@@ -17,7 +17,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   SignOut, Translate, Check, Sparkle, UserCircle, MapPin, DeviceMobile,
-  PencilSimple, ChatCircleDots, Star,
+  PencilSimple, ChatCircleDots, Star, ShieldCheck,
 } from "@phosphor-icons/react";
 
 export default function Settings() {
@@ -158,6 +158,26 @@ export default function Settings() {
             </div>
           </div>
         </button>
+
+        {user?.is_owner && (
+          <button data-testid="owner-portal-link" onClick={() => nav("/owner")}
+            className="w-full rounded-xl border border-[hsl(var(--primary))] bg-[hsl(var(--primary))]/5 p-4 flex items-center gap-3 text-left hover:bg-[hsl(var(--primary))]/10 transition-colors">
+            <div className="h-10 w-10 rounded-lg bg-[hsl(var(--primary))] text-white grid place-items-center">
+              <ShieldCheck size={22} weight="fill"/>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold flex items-center gap-2">
+                Owner Portal
+                <span className="text-[9px] uppercase tracking-wider bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] px-1.5 py-0.5 rounded-full font-semibold">
+                  Admin only
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Users, districts, ads and feedback inbox
+              </div>
+            </div>
+          </button>
+        )}
 
         {!acc.is_paid && (
           <button

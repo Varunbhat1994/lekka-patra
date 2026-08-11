@@ -7,13 +7,15 @@ import {
 import { Bell, ChatCircleDots, X, Star } from "@phosphor-icons/react";
 
 export default function FeedbackBell() {
-  const { API } = useApp();
+  const { API, user } = useApp();
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const seenRef = useRef(new Set());
 
+  const isOwner = !!user?.is_owner;
   const load = () => {
-    axios.get(`${API}/feedback`).then(r => setItems(r.data)).catch(()=>{});
+    const url = isOwner ? `${API}/owner/feedback` : `${API}/feedback`;
+    axios.get(url).then(r => setItems(r.data)).catch(()=>{});
   };
 
   useEffect(() => {
