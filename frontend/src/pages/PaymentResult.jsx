@@ -13,25 +13,14 @@ export function PaymentSuccess() {
   const sessionId = params.get("session_id");
 
   useEffect(() => {
-    if (!sessionId) return;
-    let attempts = 0;
-    const iv = setInterval(async () => {
-      attempts += 1;
-      try {
-        const { data } = await axios.get(`${API}/payments/status/${sessionId}`);
-        if (data.payment_status === "paid") {
-          clearInterval(iv);
-          setStatus("paid");
-          await refresh();
-          setTimeout(() => nav("/dashboard"), 1500);
-        } else if (attempts > 30) {
-          clearInterval(iv);
-          setStatus("timeout");
-        }
-      } catch { /* keep polling */ }
-    }, 2000);
-    return () => clearInterval(iv);
-  }, [sessionId, API, nav, refresh]);
+    // Razorpay verifies inline; if we land here already, mark as paid & refresh.
+    (async () => {
+      try { await refresh(); } catch {}
+      setStatus("paid");
+      setTimeout(() => nav("/dashboard"), 1200);
+    })();
+    void sessionId; void API;
+  }, [API, nav, refresh, sessionId]);
 
   return (
     <div className="min-h-screen grid place-items-center bg-[hsl(var(--background))] px-6">

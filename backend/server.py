@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os, io, uuid, logging, httpx
+import os, io, uuid, logging, httpx, json
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -1384,8 +1384,130 @@ async def contractor_whatsapp(cid: str, user: dict = Depends(get_current_user), 
                 lines.append(f"• {p['date']} — Rs {p['amount']} ({p.get('method','')})")
     return {"message": "\n".join(lines), "phone": contractor.get("mobile", "")}
 
-# ---------------- Payments (Stripe Flow B) ----------------
+# ---------------- Payments (Razorpay) ----------------
+import razorpay
+import hmac
+import hashlib
+import json as _json  # for webhook payload parsing
+
 LIFETIME_PRICE = float(os.environ.get("LIFETIME_PRICE_INR", "499"))
+_RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+_RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+_RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
+
+def _razorpay_client():
+    if not (_RAZORPAY_KEY_ID and _RAZORPAY_KEY_SECRET):
+        raise HTTPException(500, "Razorpay is not configured on the server")
+    return razorpay.Client(auth=(_RAZORPAY_KEY_ID, _RAZORPAY_KEY_SECRET))
+
+@api.post("/payments/order")
+async def create_order(user: dict = Depends(get_current_user)):
+    """Create a Razorpay order for the lifetime purchase."""
+    client_rzp = _razorpay_client()
+    amount_paise = int(LIFETIME_PRICE * 100)
+    receipt = f"farmlog_{user['user_id'][:12]}_{int(now_utc().timestamp())}"[:40]
+    order = client_rzp.order.create({
+        "amount": amount_paise,
+        "currency": "INR",
+        "receipt": receipt,
+        "payment_capture": 1,
+        "notes": {"user_id": user["user_id"], "product": "lifetime"},
+    })
+    await db.payment_transactions.insert_one({
+        "provider": "razorpay",
+        "order_id": order["id"],
+        "session_id": order["id"],  # backwards compat
+        "user_id": user["user_id"],
+        "amount": LIFETIME_PRICE,
+        "currency": "INR",
+        "status": "initiated",
+        "payment_status": "pending",
+        "created_at": now_utc().isoformat(),
+        "updated_at": now_utc().isoformat(),
+    })
+    return {
+        "order_id": order["id"],
+        "amount": amount_paise,
+        "currency": "INR",
+        "key_id": _RAZORPAY_KEY_ID,
+        "prefill": {
+            "name": user.get("name", ""),
+            "contact": user.get("mobile", ""),
+            "email": user.get("email", "") or "",
+        },
+    }
+
+class VerifyIn(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+@api.post("/payments/verify")
+async def verify_payment(payload: VerifyIn, user: dict = Depends(get_current_user)):
+    """Verify Razorpay signature client-side (order|payment|signature triplet)."""
+    expected = hmac.new(
+        _RAZORPAY_KEY_SECRET.encode(),
+        f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, payload.razorpay_signature):
+        raise HTTPException(400, "Invalid signature")
+
+    txn = await db.payment_transactions.find_one(
+        {"order_id": payload.razorpay_order_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if not txn:
+        raise HTTPException(404, "Order not found")
+
+    await db.payment_transactions.update_one(
+        {"order_id": payload.razorpay_order_id},
+        {"$set": {
+            "payment_id": payload.razorpay_payment_id,
+            "signature": payload.razorpay_signature,
+            "status": "completed",
+            "payment_status": "paid",
+            "updated_at": now_utc().isoformat(),
+        }},
+    )
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"is_paid": True, "paid_at": now_utc().isoformat()}},
+    )
+    return {"ok": True, "payment_status": "paid"}
+
+@api.post("/webhook/razorpay")
+async def razorpay_webhook(request: Request):
+    """Optional webhook for out-of-band confirmation."""
+    body = await request.body()
+    if _RAZORPAY_WEBHOOK_SECRET:
+        signature = request.headers.get("X-Razorpay-Signature", "")
+        expected = hmac.new(
+            _RAZORPAY_WEBHOOK_SECRET.encode(), body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            raise HTTPException(400, "Invalid webhook signature")
+    try:
+        event = json.loads(body.decode() or "{}")
+    except Exception:
+        raise HTTPException(400, "Invalid webhook payload")
+    payload = ((event.get("payload") or {}).get("payment") or {}).get("entity") or {}
+    order_id = payload.get("order_id")
+    if event.get("event") == "payment.captured" and order_id:
+        txn = await db.payment_transactions.find_one({"order_id": order_id}, {"_id": 0})
+        if txn:
+            await db.payment_transactions.update_one(
+                {"order_id": order_id},
+                {"$set": {"status": "completed", "payment_status": "paid",
+                          "payment_id": payload.get("id"),
+                          "updated_at": now_utc().isoformat()}},
+            )
+            await db.users.update_one(
+                {"user_id": txn["user_id"]},
+                {"$set": {"is_paid": True, "paid_at": now_utc().isoformat()}},
+            )
+    return {"ok": True}
+
+# ---------------- Payments (Stripe - kept for backwards compat, unused by UI) ----------------
 
 class CheckoutIn(BaseModel):
     origin_url: str
