@@ -367,6 +367,111 @@ async def otp_verify(payload: OtpVerifyIn, response: Response):
     needs_profile = not (user.get("name") and user.get("district"))
     return {"user": user, "session_token": session_token, "needs_profile": needs_profile}
 
+# ---- Firebase Phone Auth: verify Firebase ID token, mint our session ----
+import jwt
+from jwt import PyJWKClient
+from cachetools import TTLCache
+
+_FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID", "")
+_FIREBASE_JWKS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/[email protected]"
+_firebase_certs_cache: TTLCache = TTLCache(maxsize=1, ttl=3600)
+
+async def _get_firebase_certs():
+    if "certs" in _firebase_certs_cache:
+        return _firebase_certs_cache["certs"]
+    async with httpx.AsyncClient(timeout=5) as c:
+        r = await c.get(_FIREBASE_JWKS_URL)
+        r.raise_for_status()
+        certs = r.json()
+    _firebase_certs_cache["certs"] = certs
+    return certs
+
+class FirebaseIdTokenIn(BaseModel):
+    id_token: str
+
+@api.post("/auth/firebase/verify")
+async def firebase_verify(payload: FirebaseIdTokenIn, response: Response):
+    if not _FIREBASE_PROJECT_ID:
+        raise HTTPException(500, "Firebase project not configured")
+    token = payload.id_token
+    try:
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+        if not kid:
+            raise HTTPException(400, "Missing kid in token header")
+        certs = await _get_firebase_certs()
+        cert_pem = certs.get(kid)
+        if not cert_pem:
+            # cert rotated — invalidate cache and retry once
+            _firebase_certs_cache.clear()
+            certs = await _get_firebase_certs()
+            cert_pem = certs.get(kid)
+        if not cert_pem:
+            raise HTTPException(401, "Unknown signing key")
+        # Load public key from x509 cert
+        from cryptography.x509 import load_pem_x509_certificate
+        cert_obj = load_pem_x509_certificate(cert_pem.encode())
+        public_key = cert_obj.public_key()
+        claims = jwt.decode(
+            token,
+            public_key,
+            algorithms=["RS256"],
+            audience=_FIREBASE_PROJECT_ID,
+            issuer=f"https://securetoken.google.com/{_FIREBASE_PROJECT_ID}",
+            options={"require": ["exp", "iat", "sub", "aud", "iss"]},
+        )
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Token expired")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(401, f"Invalid token: {e}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("firebase verify failed: %s", e)
+        raise HTTPException(500, "Verification failed")
+
+    phone_number = claims.get("phone_number") or ""
+    if not phone_number:
+        raise HTTPException(400, "Firebase token has no phone_number claim")
+    mobile = _normalize_mobile(phone_number)
+
+    existing = await db.users.find_one({"mobile": mobile}, {"_id": 0})
+    if existing:
+        user_id = existing["user_id"]
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({
+            "user_id": user_id,
+            "mobile": mobile,
+            "firebase_uid": claims.get("sub", ""),
+            "name": "",
+            "district": "",
+            "language": "en",
+            "trial_start": now_utc().isoformat(),
+            "is_paid": False,
+            "created_at": now_utc().isoformat(),
+        })
+
+    session_token = f"mobile_{uuid.uuid4().hex}"
+    await db.user_sessions.insert_one({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": (now_utc() + timedelta(days=30)).isoformat(),
+        "created_at": now_utc().isoformat(),
+    })
+    response.set_cookie(
+        key="session_token", value=session_token,
+        httponly=True, secure=True, samesite="none",
+        max_age=30 * 24 * 3600, path="/",
+    )
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    await _promote_owner_if_needed(user_id, user.get("mobile"))
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    user["access"] = compute_access(user)
+    user["is_owner"] = is_owner(user)
+    needs_profile = not (user.get("name") and user.get("district"))
+    return {"user": user, "session_token": session_token, "needs_profile": needs_profile}
+
 @api.post("/auth/profile")
 async def set_profile(payload: ProfileIn, user: dict = Depends(get_current_user)):
     if payload.district not in KARNATAKA_DISTRICTS:

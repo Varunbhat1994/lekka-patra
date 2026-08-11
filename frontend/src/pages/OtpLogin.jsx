@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
@@ -10,43 +10,72 @@ import {
 import { toast } from "sonner";
 import { ArrowLeft, DeviceMobile, ShieldCheck } from "@phosphor-icons/react";
 
+import { auth } from "@/firebase";
+import { RecaptchaVerifier, signInWithPhoneNumber } from "firebase/auth";
+
 export default function OtpLogin() {
   const { API, setUser, lang } = useApp();
   const nav = useNavigate();
-  const [step, setStep] = useState("mobile"); // mobile | otp
+  const [step, setStep] = useState("mobile");
   const [mobile, setMobile] = useState("");
   const [otp, setOtp] = useState("");
-  const [devOtp, setDevOtp] = useState("");
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const confirmationRef = useRef(null);
+  const recaptchaRef = useRef(null);
+
+  // Setup invisible reCAPTCHA once
+  useEffect(() => {
+    if (recaptchaRef.current) return;
+    try {
+      recaptchaRef.current = new RecaptchaVerifier(auth, "recaptcha-container", {
+        size: "invisible",
+      });
+    } catch (e) {
+      console.warn("recaptcha init failed", e);
+    }
+    return () => {
+      try { recaptchaRef.current?.clear(); } catch { /* noop */ }
+      recaptchaRef.current = null;
+    };
+  }, []);
 
   const sendOtp = async () => {
     const digits = mobile.replace(/\D/g, "");
     if (digits.length < 10) return toast.error(lang === "kn" ? "10-ಅಂಕಿ ಸಂಖ್ಯೆ ನಮೂದಿಸಿ" : "Enter 10-digit number");
     setSending(true);
     try {
-      const { data } = await axios.post(`${API}/auth/otp/send`, { mobile: digits });
-      setDevOtp(data.dev_otp || "");
+      if (!recaptchaRef.current) {
+        recaptchaRef.current = new RecaptchaVerifier(auth, "recaptcha-container", { size: "invisible" });
+      }
+      const phoneE164 = `+91${digits}`;
+      const confirmation = await signInWithPhoneNumber(auth, phoneE164, recaptchaRef.current);
+      confirmationRef.current = confirmation;
       setStep("otp");
       toast.success(lang === "kn" ? "OTP ಕಳುಹಿಸಲಾಗಿದೆ" : "OTP sent");
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Failed");
+      const msg = e?.code || e?.message || "Failed";
+      toast.error(String(msg));
+      // Reset recaptcha on failure
+      try { recaptchaRef.current?.clear(); } catch { /* noop */ }
+      recaptchaRef.current = null;
     } finally { setSending(false); }
   };
 
   const verify = async () => {
     if (otp.length !== 6) return toast.error(lang === "kn" ? "6-ಅಂಕಿ OTP" : "Enter 6-digit OTP");
+    if (!confirmationRef.current) return toast.error("Please request OTP again");
     setVerifying(true);
     try {
-      const { data } = await axios.post(`${API}/auth/otp/verify`, {
-        mobile: mobile.replace(/\D/g, ""),
-        otp,
-      });
+      const cred = await confirmationRef.current.confirm(otp);
+      const idToken = await cred.user.getIdToken(true);
+      const { data } = await axios.post(`${API}/auth/firebase/verify`, { id_token: idToken });
       setUser(data.user);
       if (data.needs_profile) nav("/profile-setup", { replace: true });
       else nav("/dashboard", { replace: true });
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Invalid OTP");
+      const msg = e?.code || e?.response?.data?.detail || e?.message || "Invalid OTP";
+      toast.error(String(msg));
     } finally { setVerifying(false); }
   };
 
@@ -69,8 +98,8 @@ export default function OtpLogin() {
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {step === "mobile"
-              ? (lang === "kn" ? "ನಿಮ್ಮ ಫೋನ್‌ಗೆ 6-ಅಂಕಿಯ ಕೋಡ್ ಕಳುಹಿಸುತ್ತೇವೆ" : "We'll send a 6-digit code to your phone")
-              : (lang === "kn" ? `+91 ${mobile.replace(/\D/g,"").slice(-10)} ಗೆ OTP` : `Code sent to +91 ${mobile.replace(/\D/g,"").slice(-10)}`)}
+              ? (lang === "kn" ? "ನಿಮ್ಮ ಫೋನ್‌ಗೆ 6-ಅಂಕಿಯ ಕೋಡ್ ಕಳುಹಿಸುತ್ತೇವೆ" : "We'll SMS a 6-digit code from Firebase")
+              : (lang === "kn" ? `+91 ${mobile.replace(/\D/g,"").slice(-10)} ಗೆ OTP` : `SMS sent to +91 ${mobile.replace(/\D/g,"").slice(-10)}`)}
           </p>
         </div>
 
@@ -110,11 +139,6 @@ export default function OtpLogin() {
                   {[0,1,2,3,4,5].map(i => <InputOTPSlot key={i} index={i} />)}
                 </InputOTPGroup>
               </InputOTP>
-              {devOtp && (
-                <div className="mt-4 text-[11px] px-3 py-1.5 bg-secondary rounded-full text-muted-foreground">
-                  <span className="uppercase tracking-wider">Dev OTP</span> · <span className="font-mono font-semibold">{devOtp}</span>
-                </div>
-              )}
             </div>
             <Button
               data-testid="verify-otp-btn"
@@ -125,11 +149,14 @@ export default function OtpLogin() {
               <ShieldCheck size={18} weight="duotone" className="mr-2"/>
               {verifying ? "…" : (lang === "kn" ? "ಪರಿಶೀಲಿಸಿ" : "Verify & continue")}
             </Button>
-            <button data-testid="resend-otp" onClick={sendOtp} className="w-full text-xs text-muted-foreground hover:underline">
+            <button data-testid="resend-otp" onClick={() => { setStep("mobile"); setOtp(""); }} className="w-full text-xs text-muted-foreground hover:underline">
               {lang === "kn" ? "OTP ಮತ್ತೆ ಕಳುಹಿಸಿ" : "Resend code"}
             </button>
           </div>
         )}
+
+        {/* Invisible reCAPTCHA container for Firebase */}
+        <div id="recaptcha-container" />
       </div>
     </div>
   );
