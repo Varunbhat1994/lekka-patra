@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 8 (stability & reliability hardening) — All 14 backend tests passed. Verified: (a) /api/health returns 200 JSON {status:ok, db:up}; (b) global Exception, PyMongoError, and ServerSelectionTimeoutError handlers are registered on app.exception_handlers; (c) invalid payloads (missing mobile / string amount) return 422 and backend stays alive (subsequent /api/health still 200); (d) AsyncIOMotorClient pool options: max_pool_size=25, min_pool_size=1, connect_timeout=5s, socket_timeout=20s, wait_queue_timeout=5s, server_selection_timeout=5s, retry_writes=True, retry_reads=True; (e) supervisor [program:backend] autorestart=true and PID stable across health round-trip; (f) 30 concurrent httpx GET /api/health all returned 200 with no exceptions; (g) regression on OTP send/verify, /api/dashboard (pending_list present), worker+contractor /api/settlements, /api/feedback create+list, /api/reports/pdf?worker_id (valid %PDF header).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8_stability.py",
+    "/app/test_reports/pytest/pytest_iter8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1504 lines — still recommended to split into modules (auth.py, reports.py, feedback.py, payments.py, stability.py) for maintainability.",
+    "@app.on_event('startup') and 'shutdown' are deprecated in FastAPI — migrate to lifespan handlers to avoid future breakage.",
+    "Global Exception handler is correctly registered AFTER app.include_router(api). Order preserves HTTPException's built-in handler (correct).",
+    "Health endpoint returns 200 even in 'degraded' state (db down). Consider returning 503 when db=='down' so external uptime monitors flag the incident. Current behavior only logs a warning.",
+    "PyMongoError and ServerSelectionTimeoutError handlers both return 503 with sensible detail — good.",
+    "CORS middleware is added AFTER app.include_router; that's fine for FastAPI but a common gotcha — worth a comment.",
+    "Mongo client uses appname='farmlog' — helps DB-side profiling. Nice.",
+    "No rate limiting on /api/auth/otp/send — abuse vector (SMS bomb in production once wired to Twilio). Add per-mobile + per-IP throttle."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration8_stability.py",
+    "/app/test_reports/iteration_8.json",
+    "/app/test_reports/pytest/pytest_iter8.xml"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "N/A (backend-only iteration)"},
+  "test_credentials": "Ephemeral mobile OTP dev flow — dev_otp returned by /api/auth/otp/send.",
+  "seed_data_creation": "Ephemeral OTP user + TEST_Stab8W (worker, deleted), TEST_Stab8C (contractor, deleted), TEST_Stab8PDF (worker, deleted), one TEST_Stab8 feedback record left under ephemeral user (no cleanup impact).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Stability harness in test_iteration8_stability.py covers health, exception handlers, mongo pool config, supervisor autorestart, 30x concurrent /health, and regression on OTP/dashboard/settlements/feedback/reports. For future ServerSelectionTimeoutError verification without patching, could add a fake route that raises the exception and confirms 503+'Database temporarily unavailable' — currently skipped per task instructions.",
+  "rca of the issue": "N/A — no bugs found; all stability requirements satisfied."
+}

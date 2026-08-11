@@ -1,5 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -25,11 +25,31 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+# Lightweight, resilient Mongo client config:
+# - bounded pool (1..25) to avoid resource creep
+# - short server-selection timeout so we fail fast + return 503 instead of 30s hangs
+# - retryable reads/writes for transient network blips
+# - keep the socket alive with a reasonable idle limit
+client = AsyncIOMotorClient(
+    mongo_url,
+    maxPoolSize=25,
+    minPoolSize=1,
+    serverSelectionTimeoutMS=5000,
+    connectTimeoutMS=5000,
+    socketTimeoutMS=20000,
+    waitQueueTimeoutMS=5000,
+    maxIdleTimeMS=60000,
+    retryWrites=True,
+    retryReads=True,
+    appname="farmlog",
+)
 db = client[os.environ['DB_NAME']]
 
 app = FastAPI()
 api = APIRouter(prefix="/api")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("farmlog")
 
 # ---------------- Helpers ----------------
 def now_utc():
@@ -1427,7 +1447,51 @@ async def stripe_webhook(request: Request):
 async def root():
     return {"status": "ok", "app": "Farm Labor Tracker"}
 
+@api.get("/health")
+async def health():
+    """Lightweight health probe. Verifies DB reachability with a short ping.
+    Returns 200 when healthy, 503 when the DB is unreachable so uptime
+    monitors can flag the incident."""
+    try:
+        await client.admin.command("ping")
+        return {"status": "ok", "db": "up"}
+    except Exception as e:
+        logger.warning("health check db down: %s", e)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "db": "down", "error": str(e)[:200]},
+        )
+
 app.include_router(api)
+
+# ---- Global exception hardening ----
+from fastapi.exceptions import RequestValidationError
+from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
+
+@app.exception_handler(ServerSelectionTimeoutError)
+async def _mongo_timeout_handler(request: Request, exc: ServerSelectionTimeoutError):
+    logger.error("mongo timeout on %s: %s", request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database temporarily unavailable. Please retry."},
+    )
+
+@app.exception_handler(PyMongoError)
+async def _mongo_error_handler(request: Request, exc: PyMongoError):
+    logger.error("mongo error on %s: %s", request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database error. Please retry."},
+    )
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    # Preserve HTTPException status codes handled by FastAPI's built-in handler.
+    logger.exception("unhandled error on %s: %s", request.url.path, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -1436,9 +1500,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
