@@ -104,9 +104,10 @@ export default function Settings() {
               </div>
               <div className="font-medium truncate">{user?.name || "—"}</div>
             </div>
-            {acc.is_paid && (
+            {acc.subscription_active && (
               <div className="text-[10px] uppercase tracking-wider bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] px-2 py-1 rounded-full font-semibold flex items-center gap-1">
-                <Sparkle size={12} weight="fill"/>Lifetime
+                <Sparkle size={12} weight="fill"/>
+                {acc.subscription_days_left >= 9999 ? "Lifetime" : `${acc.subscription_days_left}d left`}
               </div>
             )}
           </div>
@@ -179,7 +180,7 @@ export default function Settings() {
           </button>
         )}
 
-        {!acc.is_paid && (
+        {!acc.subscription_active && (
           <button
             data-testid="settings-upgrade"
             onClick={() => nav("/paywall")}

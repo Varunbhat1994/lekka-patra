@@ -81,22 +81,48 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
+TRIAL_DAYS = 15
+
 def compute_access(user: dict) -> dict:
-    """Return trial/subscription state."""
-    if user.get("is_paid"):
-        return {"is_paid": True, "trial_active": False, "trial_days_left": 0, "locked": False}
+    """Return trial/subscription state. Annual subscription supersedes trial."""
+    # Active subscription?
+    sub_exp = user.get("subscription_expires_at")
+    if isinstance(sub_exp, str) and sub_exp:
+        try:
+            sub_exp_dt = datetime.fromisoformat(sub_exp)
+            if sub_exp_dt.tzinfo is None:
+                sub_exp_dt = sub_exp_dt.replace(tzinfo=timezone.utc)
+            if sub_exp_dt > now_utc():
+                days_left = max(0, int((sub_exp_dt - now_utc()).total_seconds() // 86400))
+                return {
+                    "is_paid": True,
+                    "trial_active": False,
+                    "trial_days_left": 0,
+                    "locked": False,
+                    "subscription_active": True,
+                    "subscription_days_left": days_left,
+                    "subscription_expires_at": sub_exp,
+                }
+        except Exception:
+            pass
+    # Legacy lifetime users
+    if user.get("is_paid") and not user.get("subscription_expires_at"):
+        return {"is_paid": True, "trial_active": False, "trial_days_left": 0, "locked": False,
+                "subscription_active": True, "subscription_days_left": 9999}
     trial_start = user.get("trial_start")
     if isinstance(trial_start, str):
         trial_start = datetime.fromisoformat(trial_start)
     if trial_start and trial_start.tzinfo is None:
         trial_start = trial_start.replace(tzinfo=timezone.utc)
     if not trial_start:
-        return {"is_paid": False, "trial_active": False, "trial_days_left": 0, "locked": True}
+        return {"is_paid": False, "trial_active": False, "trial_days_left": 0, "locked": True,
+                "subscription_active": False, "subscription_days_left": 0}
     elapsed = (now_utc() - trial_start).total_seconds()
-    days_left = max(0, 5 - int(elapsed // 86400))
-    trial_active = elapsed < 5 * 86400
+    days_left = max(0, TRIAL_DAYS - int(elapsed // 86400))
+    trial_active = elapsed < TRIAL_DAYS * 86400
     return {"is_paid": False, "trial_active": trial_active,
-            "trial_days_left": days_left, "locked": not trial_active}
+            "trial_days_left": days_left, "locked": not trial_active,
+            "subscription_active": False, "subscription_days_left": 0}
 
 async def require_write_access(user: dict = Depends(get_current_user)) -> dict:
     acc = compute_access(user)
@@ -1591,14 +1617,32 @@ async def verify_payment(payload: VerifyIn, user: dict = Depends(get_current_use
             "signature": payload.razorpay_signature,
             "status": "completed",
             "payment_status": "paid",
+            "plan": "annual",
             "updated_at": now_utc().isoformat(),
         }},
     )
+    # Extend subscription: if already active, add another year; else start from now.
+    cur = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    existing_exp = cur.get("subscription_expires_at") if cur else None
+    base = now_utc()
+    if isinstance(existing_exp, str) and existing_exp:
+        try:
+            e = datetime.fromisoformat(existing_exp)
+            if e.tzinfo is None: e = e.replace(tzinfo=timezone.utc)
+            if e > base: base = e
+        except Exception:
+            pass
+    new_expiry = (base + timedelta(days=365)).isoformat()
     await db.users.update_one(
         {"user_id": user["user_id"]},
-        {"$set": {"is_paid": True, "paid_at": now_utc().isoformat()}},
+        {"$set": {
+            "is_paid": True,
+            "paid_at": now_utc().isoformat(),
+            "subscription_expires_at": new_expiry,
+            "subscription_plan": "annual",
+        }},
     )
-    return {"ok": True, "payment_status": "paid"}
+    return {"ok": True, "payment_status": "paid", "subscription_expires_at": new_expiry}
 
 @api.post("/webhook/razorpay")
 async def razorpay_webhook(request: Request):
@@ -1624,11 +1668,25 @@ async def razorpay_webhook(request: Request):
                 {"order_id": order_id},
                 {"$set": {"status": "completed", "payment_status": "paid",
                           "payment_id": payload.get("id"),
+                          "plan": "annual",
                           "updated_at": now_utc().isoformat()}},
             )
+            cur = await db.users.find_one({"user_id": txn["user_id"]}, {"_id": 0})
+            existing_exp = (cur or {}).get("subscription_expires_at")
+            base = now_utc()
+            if isinstance(existing_exp, str) and existing_exp:
+                try:
+                    e = datetime.fromisoformat(existing_exp)
+                    if e.tzinfo is None: e = e.replace(tzinfo=timezone.utc)
+                    if e > base: base = e
+                except Exception:
+                    pass
+            new_expiry = (base + timedelta(days=365)).isoformat()
             await db.users.update_one(
                 {"user_id": txn["user_id"]},
-                {"$set": {"is_paid": True, "paid_at": now_utc().isoformat()}},
+                {"$set": {"is_paid": True, "paid_at": now_utc().isoformat(),
+                          "subscription_expires_at": new_expiry,
+                          "subscription_plan": "annual"}},
             )
     return {"ok": True}
 

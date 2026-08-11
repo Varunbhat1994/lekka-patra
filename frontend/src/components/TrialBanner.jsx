@@ -7,7 +7,7 @@ export default function TrialBanner() {
   const nav = useNavigate();
   if (!user) return null;
   const acc = user.access || {};
-  if (acc.is_paid) return null;
+  if (acc.subscription_active) return null;
 
   if (acc.locked) {
     return (

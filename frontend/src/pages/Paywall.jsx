@@ -88,14 +88,14 @@ export default function Paywall() {
         <div className="px-6 -mt-8 relative flex-1 flex flex-col">
           <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[hsl(var(--primary))] font-semibold">
-              <Sparkle size={14} weight="fill"/>Lifetime Access
+              <Sparkle size={14} weight="fill"/>Annual Plan · ₹99 / year
             </div>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight">{t("unlock_lifetime")}</h1>
             <p className="mt-2 text-sm text-muted-foreground">{t("lifetime_desc")}</p>
 
             <div className="mt-6 flex items-baseline gap-2">
-              <span className="text-4xl font-semibold tracking-tight">₹499</span>
-              <span className="text-sm text-muted-foreground">{t("lifetime_price").replace("₹499","").trim() || "one-time"}</span>
+              <span className="text-4xl font-semibold tracking-tight">₹99</span>
+              <span className="text-sm text-muted-foreground">/ year</span>
             </div>
 
             <ul className="mt-6 space-y-3">
@@ -105,6 +105,7 @@ export default function Paywall() {
                 "PDF & Excel reports",
                 "WhatsApp share (English & Kannada)",
                 "Cloud sync across devices",
+                "Cancel anytime by not renewing",
               ].map(f => (
                 <li key={f} className="flex items-start gap-3 text-sm">
                   <CheckCircle size={18} weight="fill" className="text-[hsl(var(--primary))] mt-0.5 shrink-0"/>
@@ -116,10 +117,12 @@ export default function Paywall() {
             <Button
               data-testid="paywall-pay-btn"
               onClick={start}
-              disabled={loading || user?.access?.is_paid}
+              disabled={loading || user?.access?.subscription_active}
               className="w-full mt-6 min-h-[56px] rounded-xl bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 text-base font-semibold"
             >
-              {user?.access?.is_paid ? "Already Purchased" : loading ? "…" : `${t("pay_now")} · ₹499`}
+              {user?.access?.subscription_active
+                ? `Active · ${user?.access?.subscription_days_left} days left`
+                : loading ? "…" : `${t("pay_now")} · ₹99 / year`}
             </Button>
             <p className="mt-3 text-[11px] text-center text-muted-foreground">
               Secured by Razorpay · UPI, Cards, Netbanking, Wallets

@@ -9,9 +9,9 @@ export const translations = {
     trial_days_left: "days left in trial",
     trial_expired: "Trial expired",
     upgrade: "Upgrade",
-    unlock_lifetime: "Unlock Lifetime Access",
-    lifetime_desc: "One-time payment. Lifetime access. No renewals.",
-    pay_now: "Pay Now",
+    unlock_lifetime: "Continue with Annual Plan",
+    lifetime_desc: "₹99 per year. Cancel anytime by not renewing.",
+    pay_now: "Subscribe Now",
     // Nav
     dashboard: "Dashboard",
     attendance: "Attendance",
@@ -67,7 +67,7 @@ export const translations = {
     account: "Account",
     read_only_notice: "Trial ended · Read-only mode",
     read_only_desc: "Upgrade to unlock adding new entries.",
-    lifetime_price: "₹499 one-time",
+    lifetime_price: "₹99 / year",
   },
   kn: {
     app_name: "ಫಾರ್ಮ್‌ಲಾಗ್",
@@ -79,9 +79,9 @@ export const translations = {
     trial_days_left: "ಟ್ರಯಲ್ ಬಾಕಿ ದಿನಗಳು",
     trial_expired: "ಟ್ರಯಲ್ ಮುಗಿದಿದೆ",
     upgrade: "ಅಪ್‌ಗ್ರೇಡ್",
-    unlock_lifetime: "ಆಜೀವನ ಪ್ರವೇಶ ಪಡೆಯಿರಿ",
-    lifetime_desc: "ಒಂದೇ ಬಾರಿ ಪಾವತಿ. ಆಜೀವನ ಬಳಕೆ. ಪುನರಾವರ್ತನೆ ಇಲ್ಲ.",
-    pay_now: "ಈಗಲೇ ಪಾವತಿಸಿ",
+    unlock_lifetime: "ವಾರ್ಷಿಕ ಚಂದಾ ಪಡೆಯಿರಿ",
+    lifetime_desc: "ವರ್ಷಕ್ಕೆ ₹99. ಯಾವಾಗ ಬೇಕಾದರೂ ರದ್ದುಗೊಳಿಸಿ.",
+    pay_now: "ಚಂದಾ ಪಾವತಿಸಿ",
     dashboard: "ಡ್ಯಾಶ್‌ಬೋರ್ಡ್",
     attendance: "ಹಾಜರಾತಿ",
     workers: "ಕಾರ್ಮಿಕರು",
@@ -131,7 +131,7 @@ export const translations = {
     account: "ಖಾತೆ",
     read_only_notice: "ಟ್ರಯಲ್ ಮುಗಿದಿದೆ · ಓದಲು ಮಾತ್ರ",
     read_only_desc: "ಹೊಸ ನಮೂದುಗಳನ್ನು ಸೇರಿಸಲು ಅಪ್‌ಗ್ರೇಡ್ ಮಾಡಿ.",
-    lifetime_price: "₹499 ಒಂದೇ ಬಾರಿ",
+    lifetime_price: "₹99 / ವರ್ಷ",
   },
 };
 
