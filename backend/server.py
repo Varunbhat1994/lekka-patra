@@ -109,21 +109,30 @@ def _owner_mobile() -> str:
     """Normalized mobile of the primary admin. Empty string disables the portal."""
     return _normalize_mobile(os.environ.get("OWNER_MOBILE", ""))
 
+def _owner_email() -> str:
+    return (os.environ.get("OWNER_EMAIL", "") or "").strip().lower()
+
 def is_owner(user: dict) -> bool:
     if user.get("role") == "owner":
         return True
     om = _owner_mobile()
-    return bool(om) and user.get("mobile") == om
+    if om and user.get("mobile") == om:
+        return True
+    oe = _owner_email()
+    if oe and (user.get("email") or "").strip().lower() == oe:
+        return True
+    return False
 
 async def require_owner(user: dict = Depends(get_current_user)) -> dict:
     if not is_owner(user):
         raise HTTPException(status_code=403, detail="Forbidden")
     return user
 
-async def _promote_owner_if_needed(user_id: str, mobile: Optional[str]):
-    """Idempotently mark the OWNER_MOBILE user with role=owner."""
+async def _promote_owner_if_needed(user_id: str, mobile: Optional[str] = None, email: Optional[str] = None):
+    """Idempotently mark the OWNER_MOBILE or OWNER_EMAIL user with role=owner."""
     om = _owner_mobile()
-    if om and mobile == om:
+    oe = _owner_email()
+    if (om and mobile == om) or (oe and (email or "").strip().lower() == oe):
         await db.users.update_one({"user_id": user_id}, {"$set": {"role": "owner"}})
 
 # ---------------- Models ----------------
@@ -234,7 +243,10 @@ async def auth_session(request: Request, response: Response):
         max_age=7*24*3600, path="/",
     )
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    await _promote_owner_if_needed(user_id, mobile=user.get("mobile"), email=user.get("email"))
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     user["access"] = compute_access(user)
+    user["is_owner"] = is_owner(user)
     return {"user": user}
 
 @api.get("/auth/me")
@@ -604,6 +616,14 @@ async def _startup_seed():
     om = _owner_mobile()
     if om:
         await db.users.update_many({"mobile": om}, {"$set": {"role": "owner"}})
+    oe = _owner_email()
+    if oe:
+        # case-insensitive email match
+        import re as _re
+        await db.users.update_many(
+            {"email": {"$regex": f"^{_re.escape(oe)}$", "$options": "i"}},
+            {"$set": {"role": "owner"}},
+        )
 
 @api.get("/ads")
 async def list_ads(user: dict = Depends(get_current_user)):
