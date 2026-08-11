@@ -1,0 +1,67 @@
+{
+  "summary": "Verified Firebase Phone Auth code paths (frontend firebase.js, OtpLogin.jsx, backend /api/auth/firebase/verify) are correct. Reproduced the OTP failure on the preview URL — the flow fails with Firebase JS SDK error 'auth/argument-error' immediately after clicking Send OTP; NO 'sendVerificationCode' network call is made. Only Firebase call observed is GET identitytoolkit.googleapis.com/v2/recaptchaConfig (200) followed by console log 'Failed to initialize reCAPTCHA Enterprise config. Triggering the reCAPTCHA v2 verification.'. Backend endpoint correctly returns 401/400 for invalid tokens. Conclusion: this is a Firebase Console configuration problem, not application code.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "OTP send (Firebase Phone Auth)",
+        "issue": "signInWithPhoneNumber rejects with 'auth/argument-error' before any /identitytoolkit/v1/accounts:sendVerificationCode request is made. Sonner toast displays 'auth/argument-error'. Firebase JS SDK also logs 'Failed to initialize reCAPTCHA Enterprise config. Triggering the reCAPTCHA v2 verification.' The reCAPTCHA v2 fallback then fails silently (no visible challenge, no verifier token) which triggers auth/argument-error. This class of error, coupled with recaptchaConfig 200 not enabling Enterprise and no SMS backend call ever firing, is a Firebase project configuration issue (not code).",
+        "affected_selectors": ["[data-testid=send-otp-btn]", "[data-sonner-toast]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "verbatim_console_output_on_send_otp": [
+    "[log] Failed to initialize reCAPTCHA Enterprise config. Triggering the reCAPTCHA v2 verification.",
+    "Toast (Sonner): auth/argument-error"
+  ],
+  "verbatim_network_on_send_otp": [
+    "200 GET https://identitytoolkit.googleapis.com/v2/recaptchaConfig?clientType=CLIENT_TYPE_WEB&version=RECAPTCHA_ENTERPRISE&key=AIzaSyC3WRCJ9GRlh4BVIenOKPhpE3D3534VSIk",
+    "NO request to https://identitytoolkit.googleapis.com/v1/accounts:sendVerificationCode was made"
+  ],
+  "code_correctness_verdict": {
+    "frontend/src/firebase.js": "CORRECT — initializes app with project lekka-patra, exports getAuth(app), calls useDeviceLanguage(). Config apiKey / authDomain / projectId / appId match request.",
+    "frontend/src/pages/OtpLogin.jsx": "CORRECT — RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' }) created in useEffect after mount; container div rendered in JSX; signInWithPhoneNumber called with `+91${digits}` and verifier; confirmationResult.confirm(otp) then getIdToken(true); POSTs { id_token } to `${API}/auth/firebase/verify`. Error toasts propagate e.code.",
+    "backend/server.py /api/auth/firebase/verify": "CORRECT — validates aud=lekka-patra, iss=https://securetoken.google.com/lekka-patra, RS256 via Google x509 certs cached 1h (TTLCache), rotates on unknown kid, returns 401 for invalid, 400 for missing kid/phone, 500 if FIREBASE_PROJECT_ID unset. Live endpoint verified: 401 for garbage token, 400 for HS256 token missing kid, 422 for missing body field."
+  },
+  "root_cause_analysis": {
+    "verdict": "Firebase Console misconfiguration (not code).",
+    "evidence": [
+      "Only network call to Google after clicking Send OTP is /v2/recaptchaConfig; no sendVerificationCode call is ever issued.",
+      "SDK logs 'Failed to initialize reCAPTCHA Enterprise config' and attempts v2 fallback but yields no visible reCAPTCHA challenge iframe (only a 1x1 empty iframe remains).",
+      "Firebase JS SDK then surfaces 'auth/argument-error' (SDK's generic error when verifier fails to produce a valid token in the reCAPTCHA v2 fallback path).",
+      "Backend + all three code files reviewed line-by-line — no defects that would prevent OTP send."
+    ]
+  },
+  "user_actionable_items_firebase_console": [
+    "1. In Firebase Console → Authentication → Sign-in method: ENABLE 'Phone' as a sign-in provider for project 'lekka-patra'. If it is disabled, phone flow errors immediately.",
+    "2. In Firebase Console → Authentication → Settings → Authorized domains: ADD 'field-crew-log-1.preview.emergentagent.com' (the current preview URL) and any custom production domain. Without this, Firebase blocks the reCAPTCHA challenge and throws auth/argument-error / auth/unauthorized-domain.",
+    "3. Upgrade the project from Spark (free) to Blaze (pay-as-you-go). Firebase Phone Auth SMS delivery requires Blaze. Spark plan will silently prevent real SMS. Alternatively, for dev testing, add a test phone number under Authentication → Sign-in method → Phone → 'Phone numbers for testing' with a fixed 6-digit code (works on Spark, no SMS billed).",
+    "4. (Optional but recommended) Configure reCAPTCHA Enterprise in Google Cloud Console for this Firebase project so that '/v2/recaptchaConfig' returns an Enterprise site key. Not strictly required — the v2 fallback should work once items 1-3 are done. If you want to silence the 'Failed to initialize reCAPTCHA Enterprise' log, configure it, otherwise leave the v2 fallback path.",
+    "5. SHA-1 fingerprint is NOT required — that is Android/native only. This is a Web app; no SHA-1 needed."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_firebase_verify.py",
+    "/app/test_reports/pytest/iter11_firebase.xml"
+  ],
+  "action_items": [
+    "No code changes required. User must fix Firebase Console configuration — see 'user_actionable_items_firebase_console' above.",
+    "Highest-probability single fix: Add 'field-crew-log-1.preview.emergentagent.com' to Authentication → Settings → Authorized domains AND enable the Phone sign-in method. For SMS delivery: switch to Blaze plan OR add a test phone number in Firebase Console."
+  ],
+  "critical_code_review_comments": [
+    "OtpLogin.jsx: RecaptchaVerifier is created once and cleared on unmount — reasonable. On send failure, verifier is cleared and nulled so next click recreates it. Good.",
+    "OtpLogin.jsx: `getIdToken(true)` forces refresh — good, guarantees fresh token to backend.",
+    "backend/server.py: TTLCache for Google x509 certs (1h) with rotate-on-unknown-kid retry — correct.",
+    "Nit (non-blocking): backend returns 400 'Missing kid in token header' — technically 401 is more consistent with 'invalid token'. Not user-facing since only reached by malformed tokens.",
+    "No hardcoded URLs, env vars used correctly, MongoDB _id excluded in projections."
+  ],
+  "updated_files": ["/app/backend/tests/test_firebase_verify.py"],
+  "success_rate": {"backend": "100%", "frontend": "code correct; runtime blocked by Firebase Console config"},
+  "test_credentials": "N/A — auth is Firebase Phone OTP; console misconfigured so real OTP not deliverable in preview.",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All three code paths (firebase.js, OtpLogin.jsx, backend /api/auth/firebase/verify) are correct. Runtime failure on Send OTP produces Sonner toast 'auth/argument-error' and console log 'Failed to initialize reCAPTCHA Enterprise config. Triggering the reCAPTCHA v2 verification.' with NO sendVerificationCode call. This is a Firebase Console configuration issue for project 'lekka-patra' (authorized domains, Phone provider enablement, Blaze plan / test numbers). Do NOT modify code. When the user reports console changes have been made, re-run the same Playwright flow on /otp and confirm sendVerificationCode fires and returns 200; if a test phone number is configured, entering that number should let the app advance to Step 02 without a real SMS.",
+  "rca_of_the_issue": "Root cause: Firebase project 'lekka-patra' Console-side settings prevent RecaptchaVerifier from acquiring a valid reCAPTCHA token in the browser: (a) reCAPTCHA Enterprise not configured → SDK falls back to v2, (b) preview domain 'field-crew-log-1.preview.emergentagent.com' is very likely not in Authorized domains and/or Phone sign-in provider is disabled and/or the project is on Spark. The v2 fallback verifier therefore fails to produce a token, and Firebase JS SDK rejects the signInWithPhoneNumber call with 'auth/argument-error' before it ever contacts identitytoolkit for sendVerificationCode. Reproduction: 1) navigate to https://field-crew-log-1.preview.emergentagent.com/otp on mobile viewport, 2) enter 9448207222, 3) tap Send OTP, 4) observe Sonner toast 'auth/argument-error' within ~200ms and console log about reCAPTCHA Enterprise fallback. Mitigation: user must complete the 4 Firebase Console steps listed under 'user_actionable_items_firebase_console'. No application code change is required."
+}
