@@ -1,7 +1,7 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
-import os, io, uuid, logging, httpx, json
+import os, io, uuid, logging, json
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
@@ -32,14 +32,21 @@ from security.authorization import (
     require_write_access,
     is_owner,
     require_owner,
-    _promote_owner_if_needed,
     _owner_mobile,
     _owner_email,
 )
-from security.utils import _normalize_mobile
+from core.constants import KARNATAKA_DISTRICTS
+
+# Route modules (Step 5+ extraction). Each mounts onto `api` below.
+from routes.auth import router as auth_router
+from routes.workers import router as workers_router
+from routes.attendance import router as attendance_router
 
 app = FastAPI()
 api = APIRouter(prefix="/api")
+api.include_router(auth_router)
+api.include_router(workers_router)
+api.include_router(attendance_router)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("farmlog")
@@ -52,42 +59,6 @@ def iso(dt):
     return dt.isoformat() if isinstance(dt, datetime) else dt
 
 # ---------------- Models ----------------
-class Worker(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str
-    name: str
-    mobile: Optional[str] = ""
-    skill: Optional[str] = ""
-    daily_rate: float
-    worker_type: str = "regular"  # regular | temporary
-    created_at: datetime = Field(default_factory=now_utc)
-
-class WorkerIn(BaseModel):
-    name: str
-    mobile: Optional[str] = ""
-    skill: Optional[str] = ""
-    daily_rate: float
-    worker_type: Optional[str] = "regular"
-
-class Attendance(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str
-    worker_id: str
-    date: str  # YYYY-MM-DD
-    status: str  # present, half_day, absent, overtime
-    overtime_hours: float = 0
-    field_crop: Optional[str] = ""
-    description: Optional[str] = ""
-    created_at: datetime = Field(default_factory=now_utc)
-
-class AttendanceIn(BaseModel):
-    worker_id: str
-    date: str
-    status: str
-    overtime_hours: float = 0
-    field_crop: Optional[str] = ""
-    description: Optional[str] = ""
-
 class Advance(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
@@ -111,313 +82,6 @@ class SettlementIn(BaseModel):
     up_to_date: str
     note: Optional[str] = ""
 
-# ---------------- Auth ----------------
-@api.post("/auth/session")
-async def auth_session(request: Request, response: Response):
-    body = await request.json()
-    session_id = body.get("session_id")
-    if not session_id:
-        raise HTTPException(400, "session_id required")
-    async with httpx.AsyncClient() as c:
-        r = await c.get(
-            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-            headers={"X-Session-ID": session_id},
-        )
-        if r.status_code != 200:
-            raise HTTPException(401, "Auth failed")
-        data = r.json()
-
-    email = data["email"]
-    existing = await db.users.find_one({"email": email}, {"_id": 0})
-    if existing:
-        user_id = existing["user_id"]
-        await db.users.update_one({"user_id": user_id},
-            {"$set": {"name": data.get("name"), "picture": data.get("picture")}})
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        await db.users.insert_one({
-            "user_id": user_id,
-            "email": email,
-            "name": data.get("name"),
-            "picture": data.get("picture"),
-            "language": "en",
-            "trial_start": now_utc().isoformat(),
-            "is_paid": False,
-            "created_at": now_utc().isoformat(),
-        })
-
-    session_token = data["session_token"]
-    expires_at = now_utc() + timedelta(days=7)
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": expires_at.isoformat(),
-        "created_at": now_utc().isoformat(),
-    })
-
-    response.set_cookie(
-        key="session_token", value=session_token,
-        httponly=True, secure=True, samesite="none",
-        max_age=7*24*3600, path="/",
-    )
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    await _promote_owner_if_needed(user_id, mobile=user.get("mobile"), email=user.get("email"))
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    user["access"] = compute_access(user)
-    user["is_owner"] = is_owner(user)
-    return {"user": user}
-
-@api.get("/auth/me")
-async def auth_me(user: dict = Depends(get_current_user)):
-    user["access"] = compute_access(user)
-    user["is_owner"] = is_owner(user)
-    return user
-
-@api.post("/auth/logout")
-async def logout(request: Request, response: Response):
-    token = request.cookies.get("session_token")
-    if token:
-        await db.user_sessions.delete_one({"session_token": token})
-    response.delete_cookie("session_token", path="/")
-    return {"ok": True}
-
-@api.post("/auth/language")
-async def set_language(request: Request, user: dict = Depends(get_current_user)):
-    body = await request.json()
-    lang = body.get("language", "en")
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"language": lang}})
-    return {"ok": True, "language": lang}
-
-# ---------------- Mobile OTP Auth ----------------
-KARNATAKA_DISTRICTS = [
-    "Bagalkot","Ballari","Belagavi","Bengaluru Rural","Bengaluru Urban","Bidar",
-    "Chamarajanagar","Chikkaballapur","Chikkamagaluru","Chitradurga","Dakshina Kannada",
-    "Davanagere","Dharwad","Gadag","Hassan","Haveri","Kalaburagi","Kodagu","Kolar",
-    "Koppal","Mandya","Mysuru","Raichur","Ramanagara","Shivamogga","Tumakuru",
-    "Udupi","Uttara Kannada","Vijayanagara","Vijayapura","Yadgir",
-]
-
-class OtpSendIn(BaseModel):
-    mobile: str
-
-class OtpVerifyIn(BaseModel):
-    mobile: str
-    otp: str
-
-class ProfileIn(BaseModel):
-    name: str
-    district: str
-    mobile: Optional[str] = None
-
-@api.get("/districts")
-async def list_districts():
-    return {"districts": KARNATAKA_DISTRICTS}
-
-@api.post("/auth/otp/send")
-async def otp_send(payload: OtpSendIn):
-    mobile = _normalize_mobile(payload.mobile)
-    if len(mobile) < 10:
-        raise HTTPException(400, "Invalid mobile number")
-    import random
-    otp = f"{random.randint(0, 999999):06d}"
-    await db.otps.update_one(
-        {"mobile": mobile},
-        {"$set": {
-            "mobile": mobile, "otp": otp,
-            "expires_at": (now_utc() + timedelta(minutes=5)).isoformat(),
-            "attempts": 0,
-            "created_at": now_utc().isoformat(),
-        }},
-        upsert=True,
-    )
-    # DEV MODE: return OTP directly. Wire a real SMS provider (Twilio/MSG91) here for production.
-    return {"ok": True, "mobile": mobile, "dev_otp": otp}
-
-@api.post("/auth/otp/verify")
-async def otp_verify(payload: OtpVerifyIn, response: Response):
-    mobile = _normalize_mobile(payload.mobile)
-    rec = await db.otps.find_one({"mobile": mobile}, {"_id": 0})
-    if not rec:
-        raise HTTPException(400, "OTP not requested")
-    exp = rec["expires_at"]
-    if isinstance(exp, str):
-        exp = datetime.fromisoformat(exp)
-    if exp.tzinfo is None:
-        exp = exp.replace(tzinfo=timezone.utc)
-    if exp < now_utc():
-        raise HTTPException(400, "OTP expired")
-    if rec.get("attempts", 0) >= 5:
-        raise HTTPException(429, "Too many attempts")
-    if rec["otp"] != payload.otp.strip():
-        await db.otps.update_one({"mobile": mobile}, {"$inc": {"attempts": 1}})
-        raise HTTPException(400, "Invalid OTP")
-
-    await db.otps.delete_one({"mobile": mobile})
-
-    existing = await db.users.find_one({"mobile": mobile}, {"_id": 0})
-    if existing:
-        user_id = existing["user_id"]
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        await db.users.insert_one({
-            "user_id": user_id,
-            "mobile": mobile,
-            "name": "",
-            "district": "",
-            "language": "en",
-            "trial_start": now_utc().isoformat(),
-            "is_paid": False,
-            "created_at": now_utc().isoformat(),
-        })
-
-    session_token = f"mobile_{uuid.uuid4().hex}"
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": (now_utc() + timedelta(days=30)).isoformat(),
-        "created_at": now_utc().isoformat(),
-    })
-    response.set_cookie(
-        key="session_token", value=session_token,
-        httponly=True, secure=True, samesite="none",
-        max_age=30*24*3600, path="/",
-    )
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    # Promote owner if configured
-    await _promote_owner_if_needed(user_id, user.get("mobile"))
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    user["access"] = compute_access(user)
-    user["is_owner"] = is_owner(user)
-    needs_profile = not (user.get("name") and user.get("district"))
-    return {"user": user, "session_token": session_token, "needs_profile": needs_profile}
-
-# ---- Firebase Phone Auth: verify Firebase ID token, mint our session ----
-import jwt
-from jwt import PyJWKClient
-from cachetools import TTLCache
-
-_FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID", "")
-_FIREBASE_JWKS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/[email protected]"
-_firebase_certs_cache: TTLCache = TTLCache(maxsize=1, ttl=3600)
-
-async def _get_firebase_certs():
-    if "certs" in _firebase_certs_cache:
-        return _firebase_certs_cache["certs"]
-    async with httpx.AsyncClient(timeout=5) as c:
-        r = await c.get(_FIREBASE_JWKS_URL)
-        r.raise_for_status()
-        certs = r.json()
-    _firebase_certs_cache["certs"] = certs
-    return certs
-
-class FirebaseIdTokenIn(BaseModel):
-    id_token: str
-
-@api.post("/auth/firebase/verify")
-async def firebase_verify(payload: FirebaseIdTokenIn, response: Response):
-    if not _FIREBASE_PROJECT_ID:
-        raise HTTPException(500, "Firebase project not configured")
-    token = payload.id_token
-    try:
-        unverified_header = jwt.get_unverified_header(token)
-        kid = unverified_header.get("kid")
-        if not kid:
-            raise HTTPException(400, "Missing kid in token header")
-        certs = await _get_firebase_certs()
-        cert_pem = certs.get(kid)
-        if not cert_pem:
-            # cert rotated — invalidate cache and retry once
-            _firebase_certs_cache.clear()
-            certs = await _get_firebase_certs()
-            cert_pem = certs.get(kid)
-        if not cert_pem:
-            raise HTTPException(401, "Unknown signing key")
-        # Load public key from x509 cert
-        from cryptography.x509 import load_pem_x509_certificate
-        cert_obj = load_pem_x509_certificate(cert_pem.encode())
-        public_key = cert_obj.public_key()
-        claims = jwt.decode(
-            token,
-            public_key,
-            algorithms=["RS256"],
-            audience=_FIREBASE_PROJECT_ID,
-            issuer=f"https://securetoken.google.com/{_FIREBASE_PROJECT_ID}",
-            options={"require": ["exp", "iat", "sub", "aud", "iss"]},
-        )
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(401, "Token expired")
-    except jwt.InvalidTokenError as e:
-        raise HTTPException(401, f"Invalid token: {e}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("firebase verify failed: %s", e)
-        raise HTTPException(500, "Verification failed")
-
-    phone_number = claims.get("phone_number") or ""
-    if not phone_number:
-        raise HTTPException(400, "Firebase token has no phone_number claim")
-    mobile = _normalize_mobile(phone_number)
-
-    existing = await db.users.find_one({"mobile": mobile}, {"_id": 0})
-    if existing:
-        user_id = existing["user_id"]
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        await db.users.insert_one({
-            "user_id": user_id,
-            "mobile": mobile,
-            "firebase_uid": claims.get("sub", ""),
-            "name": "",
-            "district": "",
-            "language": "en",
-            "trial_start": now_utc().isoformat(),
-            "is_paid": False,
-            "created_at": now_utc().isoformat(),
-        })
-
-    session_token = f"mobile_{uuid.uuid4().hex}"
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": (now_utc() + timedelta(days=30)).isoformat(),
-        "created_at": now_utc().isoformat(),
-    })
-    response.set_cookie(
-        key="session_token", value=session_token,
-        httponly=True, secure=True, samesite="none",
-        max_age=30 * 24 * 3600, path="/",
-    )
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    await _promote_owner_if_needed(user_id, user.get("mobile"))
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    user["access"] = compute_access(user)
-    user["is_owner"] = is_owner(user)
-    needs_profile = not (user.get("name") and user.get("district"))
-    return {"user": user, "session_token": session_token, "needs_profile": needs_profile}
-
-@api.post("/auth/profile")
-async def set_profile(payload: ProfileIn, user: dict = Depends(get_current_user)):
-    if payload.district not in KARNATAKA_DISTRICTS:
-        raise HTTPException(400, "Invalid district")
-    if not payload.name.strip():
-        raise HTTPException(400, "Name required")
-    update = {"name": payload.name.strip(), "district": payload.district}
-    if payload.mobile is not None and payload.mobile.strip():
-        new_mobile = _normalize_mobile(payload.mobile)
-        if len(new_mobile) < 10:
-            raise HTTPException(400, "Invalid mobile")
-        # Check uniqueness (other users can't own the same mobile)
-        conflict = await db.users.find_one(
-            {"mobile": new_mobile, "user_id": {"$ne": user["user_id"]}}, {"_id": 0}
-        )
-        if conflict:
-            raise HTTPException(409, "Mobile already used by another account")
-        update["mobile"] = new_mobile
-    await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
-    updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
-    updated["access"] = compute_access(updated)
-    return {"ok": True, "user": updated}
 
 # ---------------- Feedback ----------------
 class FeedbackIn(BaseModel):
@@ -547,38 +211,6 @@ async def list_ads(user: dict = Depends(get_current_user)):
     return rows
 
 
-
-# ---------------- Workers ----------------
-@api.get("/workers")
-async def list_workers(user: dict = Depends(get_current_user)):
-    workers = await db.workers.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(1000)
-    return workers
-
-@api.post("/workers")
-async def create_worker(w: WorkerIn, user: dict = Depends(require_write_access)):
-    obj = Worker(user_id=user["user_id"], **w.model_dump())
-    doc = obj.model_dump()
-    doc["created_at"] = doc["created_at"].isoformat()
-    await db.workers.insert_one(doc)
-    return obj
-
-@api.put("/workers/{worker_id}")
-async def update_worker(worker_id: str, w: WorkerIn, user: dict = Depends(require_write_access)):
-    res = await db.workers.update_one(
-        {"id": worker_id, "user_id": user["user_id"]},
-        {"$set": w.model_dump()},
-    )
-    if res.matched_count == 0:
-        raise HTTPException(404, "Worker not found")
-    return {"ok": True}
-
-@api.delete("/workers/{worker_id}")
-async def delete_worker(worker_id: str, user: dict = Depends(require_write_access)):
-    await db.workers.delete_one({"id": worker_id, "user_id": user["user_id"]})
-    await db.attendance.delete_many({"worker_id": worker_id, "user_id": user["user_id"]})
-    await db.advances.delete_many({"worker_id": worker_id, "user_id": user["user_id"]})
-    await db.advance_returns.delete_many({"worker_id": worker_id, "user_id": user["user_id"]})
-    return {"ok": True}
 
 # ---------------- Contractors ----------------
 class ContractorIn(BaseModel):
@@ -758,48 +390,6 @@ async def contractor_ledger(cid: str, user: dict = Depends(get_current_user)):
         "payments": payments,
         "returns": returns,
     }
-
-# ---------------- Attendance ----------------
-@api.get("/attendance")
-async def list_attendance(
-    user: dict = Depends(get_current_user),
-    date: Optional[str] = None,
-    worker_id: Optional[str] = None,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-):
-    q = {"user_id": user["user_id"]}
-    if date:
-        q["date"] = date
-    if worker_id:
-        q["worker_id"] = worker_id
-    if start and end:
-        q["date"] = {"$gte": start, "$lte": end}
-    rows = await db.attendance.find(q, {"_id": 0}).to_list(5000)
-    return rows
-
-@api.post("/attendance")
-async def upsert_attendance(a: AttendanceIn, user: dict = Depends(require_write_access)):
-    # Upsert per (worker_id, date)
-    existing = await db.attendance.find_one({
-        "user_id": user["user_id"], "worker_id": a.worker_id, "date": a.date
-    }, {"_id": 0})
-    if existing:
-        await db.attendance.update_one(
-            {"id": existing["id"]},
-            {"$set": a.model_dump()},
-        )
-        return {"ok": True, "id": existing["id"]}
-    obj = Attendance(user_id=user["user_id"], **a.model_dump())
-    doc = obj.model_dump()
-    doc["created_at"] = doc["created_at"].isoformat()
-    await db.attendance.insert_one(doc)
-    return obj
-
-@api.delete("/attendance/{att_id}")
-async def del_attendance(att_id: str, user: dict = Depends(require_write_access)):
-    await db.attendance.delete_one({"id": att_id, "user_id": user["user_id"]})
-    return {"ok": True}
 
 # ---------------- Advances / Ledger ----------------
 @api.get("/advances")
