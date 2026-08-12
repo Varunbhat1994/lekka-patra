@@ -1,10 +1,7 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query
 from fastapi.responses import StreamingResponse, JSONResponse
-from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os, io, uuid, logging, httpx, json
-from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
@@ -21,29 +18,11 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
-
-mongo_url = os.environ['MONGO_URL']
-# Lightweight, resilient Mongo client config:
-# - bounded pool (1..25) to avoid resource creep
-# - short server-selection timeout so we fail fast + return 503 instead of 30s hangs
-# - retryable reads/writes for transient network blips
-# - keep the socket alive with a reasonable idle limit
-client = AsyncIOMotorClient(
-    mongo_url,
-    maxPoolSize=25,
-    minPoolSize=1,
-    serverSelectionTimeoutMS=5000,
-    connectTimeoutMS=5000,
-    socketTimeoutMS=20000,
-    waitQueueTimeoutMS=5000,
-    maxIdleTimeMS=60000,
-    retryWrites=True,
-    retryReads=True,
-    appname="farmlog",
-)
-db = client[os.environ['DB_NAME']]
+# Shared infrastructure — importing core.database also imports core.config,
+# which runs load_dotenv() so all subsequent os.environ reads in this
+# module resolve correctly. Keep this import BEFORE any other os.environ
+# access.
+from core.database import client, db
 
 app = FastAPI()
 api = APIRouter(prefix="/api")
