@@ -2,6 +2,7 @@ import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { Toaster } from "sonner";
+import BetaBanner from "@/components/BetaBanner";
 
 import LanguagePicker from "@/pages/LanguagePicker";
 import Login from "@/pages/Login";
@@ -65,6 +66,7 @@ export default function App() {
   return (
     <AppProvider>
       <BrowserRouter>
+        <BetaBanner />
         <AppRouter />
         <Toaster position="top-center" richColors />
       </BrowserRouter>
