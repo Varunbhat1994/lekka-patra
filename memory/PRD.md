@@ -23,6 +23,8 @@ Production-ready, mobile-responsive web app for agriculturists to track field la
 - 15-day trial + ₹99/yr Razorpay subscription with read-only lock (HTTP 402)
 - App rebrand to "Lekka Patra" everywhere
 - **[2026-02-11] Custom App Icon & PWA:** Square-cropped Lekka Patra logo installed as favicon.ico + PNG icons (16, 32, 48, 64, 96, 128, 144, 152, 180, 192, 256, 384, 512, 1024) + maskable variants (192/512/1024) with green safe-zone padding. manifest.json updated with 15 icons and theme/background `#1c683b`. index.html adds full apple-touch-icon set, mask-icon, and multiple icon size links for Android + iOS home-screen installs and PWA splash.
+- **[2026-02-11] Bubblewrap TWA scaffolding:** `/app/mobile/twa-manifest.json` + `/app/mobile/README.md` step-by-step APK build guide. `/.well-known/assetlinks.json` served live on the PWA domain for Digital Asset Links verification (fingerprint placeholder to be filled after user runs `bubblewrap init`).
+- **[2026-02-12] Worker Type & Attendance grouping:** Added `worker_type` field (regular | temporary, default regular) to Worker model + WorkerIn. Workers form now has a segmented Regular/Temporary toggle. Worker list rows show a colored badge. Attendance page groups workers into two sticky sections — **Regular Workers** first, then **Temporary Workers** — each with a header and count. Sections only render when non-empty. Bilingual (EN/KN) labels added.
 
 ## Backlog (P1/P2)
 - **P1** Real SMS OTP (Firebase Phone Auth once user upgrades to Blaze, or MSG91/Twilio fallback)

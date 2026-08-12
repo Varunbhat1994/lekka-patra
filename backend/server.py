@@ -169,6 +169,7 @@ class Worker(BaseModel):
     mobile: Optional[str] = ""
     skill: Optional[str] = ""
     daily_rate: float
+    worker_type: str = "regular"  # regular | temporary
     created_at: datetime = Field(default_factory=now_utc)
 
 class WorkerIn(BaseModel):
@@ -176,6 +177,7 @@ class WorkerIn(BaseModel):
     mobile: Optional[str] = ""
     skill: Optional[str] = ""
     daily_rate: float
+    worker_type: Optional[str] = "regular"
 
 class Attendance(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
