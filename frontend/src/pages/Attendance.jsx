@@ -98,8 +98,11 @@ export default function Attendance() {
           </div>
         )}
 
-        <div className="space-y-3">
-          {workers.map(w => {
+        {(() => {
+          const regular = workers.filter(w => (w.worker_type || "regular") !== "temporary");
+          const temporary = workers.filter(w => (w.worker_type || "regular") === "temporary");
+
+          const renderRow = (w) => {
             const cur = att[w.id] || {};
             return (
               <div key={w.id} data-testid={`att-worker-${w.id}`} className="rounded-xl border border-border bg-card p-4 space-y-3">
@@ -170,8 +173,54 @@ export default function Attendance() {
                 )}
               </div>
             );
-          })}
-        </div>
+          };
+
+          const SectionHeader = ({ label, count, tone, testId }) => (
+            <div
+              data-testid={testId}
+              className="sticky top-0 z-10 -mx-1 px-1 py-2 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70"
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${tone === "temporary" ? "bg-[#b89654]" : "bg-[hsl(var(--primary))]"}`}
+                />
+                <h3 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-foreground/80">
+                  {label}
+                </h3>
+                <span className="text-[11px] text-muted-foreground">· {count}</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+            </div>
+          );
+
+          return (
+            <div className="space-y-6">
+              {regular.length > 0 && (
+                <section className="space-y-3">
+                  <SectionHeader
+                    label={t("regular_workers")}
+                    count={regular.length}
+                    tone="regular"
+                    testId="section-regular-workers"
+                  />
+                  <div className="space-y-3">{regular.map(renderRow)}</div>
+                </section>
+              )}
+
+              {temporary.length > 0 && (
+                <section className="space-y-3">
+                  <SectionHeader
+                    label={t("temporary_workers")}
+                    count={temporary.length}
+                    tone="temporary"
+                    testId="section-temporary-workers"
+                  />
+                  <div className="space-y-3">{temporary.map(renderRow)}</div>
+                </section>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </AppShell>
   );

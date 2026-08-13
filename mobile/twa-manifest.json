@@ -1,0 +1,62 @@
+{
+  "packageId": "in.lekkapatra.app",
+  "host": "field-crew-log-1.preview.emergentagent.com",
+  "name": "Lekka Patra",
+  "launcherName": "Lekka Patra",
+  "display": "standalone",
+  "orientation": "portrait",
+  "themeColor": "#1c683b",
+  "themeColorDark": "#0f3d22",
+  "navigationColor": "#1c683b",
+  "navigationColorDark": "#0f3d22",
+  "navigationDividerColor": "#1c683b",
+  "navigationDividerColorDark": "#0f3d22",
+  "backgroundColor": "#1c683b",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "https://field-crew-log-1.preview.emergentagent.com/icons/icon-512.png",
+  "maskableIconUrl": "https://field-crew-log-1.preview.emergentagent.com/icons/maskable-512.png",
+  "monochromeIconUrl": "https://field-crew-log-1.preview.emergentagent.com/icons/icon-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "android"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "shortName": "Home",
+      "url": "/",
+      "chosenIconUrl": "https://field-crew-log-1.preview.emergentagent.com/icons/icon-192.png"
+    },
+    {
+      "name": "Workers",
+      "shortName": "Workers",
+      "url": "/workers",
+      "chosenIconUrl": "https://field-crew-log-1.preview.emergentagent.com/icons/icon-192.png"
+    },
+    {
+      "name": "Ledger",
+      "shortName": "Ledger",
+      "url": "/ledger",
+      "chosenIconUrl": "https://field-crew-log-1.preview.emergentagent.com/icons/icon-192.png"
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://field-crew-log-1.preview.emergentagent.com/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": { "enabled": false },
+    "playBilling": { "enabled": false }
+  },
+  "alphaDependencies": { "enabled": false },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://field-crew-log-1.preview.emergentagent.com/",
+  "minSdkVersion": 21,
+  "orientationLock": "portrait",
+  "additionalTrustedOrigins": []
+}
