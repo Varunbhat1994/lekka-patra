@@ -231,7 +231,12 @@ export default function Ledger() {
                   <Stat label={t("days_worked")} val={l?.days_worked ?? "—"} />
                   <Stat label={t("total_earned")} val={l ? `₹${l.total_earned}` : "—"} />
                   <Stat label={lang === "kn" ? "ನಿವ್ವಳ ಮುಂಗಡ" : "Net advance"} val={l ? `₹${l.net_advance ?? l.total_advance}` : "—"} accent />
-                  <Stat label={lang === "kn" ? "ಅಂತಿಮ ಬಾಕಿ" : "Balance"} val={l ? `₹${Math.abs(Number(l.final_balance ?? 0))}` : "—"} primary />
+                  <Stat
+                    label={lang === "kn" ? "ಅಂತಿಮ ಬಾಕಿ" : "Balance"}
+                    val={l ? `₹${Math.abs(Number(l.final_balance ?? 0))}` : "—"}
+                    primary={l && Number(l.final_balance ?? 0) > 0}
+                    danger={l && Number(l.final_balance ?? 0) < 0}
+                  />
                 </div>
                 {l && (() => {
                   const fb = Number(l.final_balance ?? 0);
@@ -520,11 +525,11 @@ export default function Ledger() {
   );
 }
 
-function Stat({ label, val, primary, accent }) {
+function Stat({ label, val, primary, accent, danger }) {
   return (
     <div className="border border-border rounded-lg p-2 min-w-0">
       <div className="text-[9px] uppercase tracking-wider text-muted-foreground leading-tight break-words">{label}</div>
-      <div className={`text-sm font-semibold mt-0.5 truncate ${primary ? "text-[hsl(var(--primary))]" : accent ? "text-[hsl(var(--accent))]" : ""}`}>{val}</div>
+      <div className={`text-sm font-semibold mt-0.5 truncate ${danger ? "text-red-600" : primary ? "text-[hsl(var(--primary))]" : accent ? "text-[hsl(var(--accent))]" : ""}`}>{val}</div>
     </div>
   );
 }
