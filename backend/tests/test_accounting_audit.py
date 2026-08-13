@@ -46,20 +46,23 @@ async def _mk_worker(user_id: str, wage: float = 500.0, name: str = "T") -> dict
     return w
 
 
-async def _att(user_id, wid, date, status="present", ot=0):
-    await db.attendance.insert_one({
+async def _att(user_id, wid, date, status="present", ot=0, rate=None):
+    doc = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
         "worker_id": wid,
         "date": date,
         "status": status,
         "overtime_hours": ot,
-    })
+    }
+    if rate is not None:
+        doc["daily_rate_snapshot"] = float(rate)
+    await db.attendance.insert_one(doc)
 
 
-async def _days(user_id, wid, n, start_day=1, month="01"):
+async def _days(user_id, wid, n, start_day=1, month="01", rate=None):
     for i in range(n):
-        await _att(user_id, wid, f"2026-{month}-{start_day+i:02d}")
+        await _att(user_id, wid, f"2026-{month}-{start_day+i:02d}", rate=rate)
 
 
 async def _adv(user_id, wid, amount, date="2026-01-15"):
@@ -804,6 +807,175 @@ async def test_32_year_month_filter_stable_reload():
         await _cleanup(uid)
 
 
+# ==================================================================
+# WAGE-CHANGE / HISTORICAL RATE PRESERVATION (Steps 4, 5, 13 of audit)
+# ==================================================================
+
+async def test_33_wage_change_preserves_history():
+    """Case 33: THE 500 → 600 SCENARIO.
+       4 days at ₹500 (snapshot=500) → then worker wage bumped to ₹600
+       → 4 more days at ₹600 (snapshot=600).
+       Old records must stay at ₹500. Total must be 2000 + 2400 = ₹4,400.
+       Must NEVER be 8 × 600 = ₹4,800."""
+    uid = f"t33_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=500)
+        await _days(uid, w["id"], 4, start_day=1, month="01", rate=500)
+        await db.workers.update_one({"id": w["id"]}, {"$set": {"daily_rate": 600}})
+        w2 = await db.workers.find_one({"id": w["id"]}, {"_id": 0})
+        await _days(uid, w2["id"], 4, start_day=5, month="01", rate=600)
+        led = await compute_worker_ledger(uid, w2)
+        assert led["total_earned"] == 4400.0, f"Expected 4400, got {led['total_earned']}"
+        assert led["total_earned"] != 4800.0, "Historical wage was rewritten to current rate — BUG"
+        print(f"33 wage change 500→600 ✓  Total = ₹4,400 (not ₹4,800)")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_34_triple_wage_change():
+    """Case 34: 500 → 600 → 700, each period 3 days. Total 1500+1800+2100=5400."""
+    uid = f"t34_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=500)
+        await _days(uid, w["id"], 3, start_day=1, month="01", rate=500)
+        await db.workers.update_one({"id": w["id"]}, {"$set": {"daily_rate": 600}})
+        await _days(uid, w["id"], 3, start_day=4, month="01", rate=600)
+        await db.workers.update_one({"id": w["id"]}, {"$set": {"daily_rate": 700}})
+        await _days(uid, w["id"], 3, start_day=7, month="01", rate=700)
+        w_now = await db.workers.find_one({"id": w["id"]}, {"_id": 0})
+        led = await compute_worker_ledger(uid, w_now)
+        assert led["total_earned"] == 5400.0, f"Expected 5400, got {led['total_earned']}"
+        assert led["total_earned"] != 6300.0  # all-current-rate would be 9*700
+        print("34 triple wage change ✓  Total = ₹5,400 (each period retains rate)")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_35_wage_change_without_new_work():
+    """Case 35: Wage edit with no new work → total unchanged."""
+    uid = f"t35_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=500)
+        await _days(uid, w["id"], 4, start_day=1, month="01", rate=500)
+        led_before = await compute_worker_ledger(uid, w)
+        assert led_before["total_earned"] == 2000.0
+        await db.workers.update_one({"id": w["id"]}, {"$set": {"daily_rate": 999}})
+        w_after = await db.workers.find_one({"id": w["id"]}, {"_id": 0})
+        led_after = await compute_worker_ledger(uid, w_after)
+        assert led_after["total_earned"] == 2000.0, led_after
+        print("35 wage change w/o work ✓  Total unchanged (₹2,000)")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_36_legacy_row_fallback():
+    """Case 36: Rows without daily_rate_snapshot fall back to worker's current rate."""
+    uid = f"t36_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=500)
+        await _days(uid, w["id"], 3, start_day=1, month="01")  # no rate → legacy
+        led = await compute_worker_ledger(uid, w)
+        assert led["total_earned"] == 1500.0, led
+        rows = await db.attendance.find({"user_id": uid, "worker_id": w["id"]}).to_list(100)
+        assert all(r.get("daily_rate_snapshot") is None for r in rows), rows
+        print("36 legacy fallback ✓  Rows without snapshot use current rate")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_37_settlement_across_wage_change():
+    """Case 37: Settle across wage change → history stays locked; another
+       wage bump post-settle must not rewrite history either."""
+    uid = f"t37_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=500)
+        await _days(uid, w["id"], 4, start_day=1, month="01", rate=500)
+        await db.workers.update_one({"id": w["id"]}, {"$set": {"daily_rate": 600}})
+        await _days(uid, w["id"], 4, start_day=5, month="01", rate=600)
+        w_now = await db.workers.find_one({"id": w["id"]}, {"_id": 0})
+        led_pre = await compute_worker_ledger(uid, w_now)
+        assert led_pre["total_earned"] == 4400.0, led_pre
+        await _settle_actual_paid(uid, w_now["id"], "2026-01-31", 4400, 4400)
+        led_post = await compute_worker_ledger(uid, w_now)
+        assert led_post["total_earned"] == 0.0
+        assert led_post["total_settled"] == 4400.0
+        led_year = await compute_worker_ledger(uid, w_now, start="2026-01-01", end="2026-12-31")
+        assert led_year["total_earned"] == 4400.0
+        # Bump wage AFTER settlement — history still locked
+        await db.workers.update_one({"id": w["id"]}, {"$set": {"daily_rate": 999}})
+        w_bumped = await db.workers.find_one({"id": w["id"]}, {"_id": 0})
+        led_year_after = await compute_worker_ledger(uid, w_bumped, start="2026-01-01", end="2026-12-31")
+        assert led_year_after["total_earned"] == 4400.0, led_year_after
+        print("37 settle across wage change ✓  History locked at ₹4,400")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_38_user_isolation_on_wage_change():
+    """Case 38: User A changes wage. User B's records untouched."""
+    uidA = f"t38a_{uuid.uuid4()}"
+    uidB = f"t38b_{uuid.uuid4()}"
+    try:
+        wA = await _mk_worker(uidA, wage=500)
+        wB = await _mk_worker(uidB, wage=500)
+        await _days(uidA, wA["id"], 4, start_day=1, month="01", rate=500)
+        await _days(uidB, wB["id"], 4, start_day=1, month="01", rate=500)
+        await db.workers.update_one({"id": wA["id"]}, {"$set": {"daily_rate": 999}})
+        wA_now = await db.workers.find_one({"id": wA["id"]}, {"_id": 0})
+        ledA = await compute_worker_ledger(uidA, wA_now)
+        ledB = await compute_worker_ledger(uidB, wB)
+        assert ledA["total_earned"] == 2000.0, ledA
+        assert ledB["total_earned"] == 2000.0, ledB
+        print("38 user isolation on wage change ✓  A and B stay at ₹2,000")
+    finally:
+        await _cleanup(uidA)
+        await _cleanup(uidB)
+
+
+async def test_39_e2e_http_wage_snapshot():
+    """Case 39: End-to-end HTTP — POST /attendance snapshots wage;
+       PUT /workers wage change does NOT rewrite past earnings."""
+    from datetime import datetime, timezone, timedelta
+    import httpx
+    BASE = os.environ.get("REACT_APP_BACKEND_URL", "https://field-crew-log-1.preview.emergentagent.com") + "/api"
+    uid = f"t39_{uuid.uuid4().hex[:8]}"
+    now = datetime.now(timezone.utc)
+    await db.users.insert_one({
+        "user_id": uid, "email": f"{uid}@t.com", "mobile": "9000039000",
+        "name": "T39", "role": "owner",
+        "subscription_active": True,
+        "subscription_expires_at": (now + timedelta(days=365)).isoformat(),
+        "trial_starts_at": now.isoformat(),
+        "trial_expires_at": (now + timedelta(days=365)).isoformat(),
+        "created_at": now.isoformat(),
+    })
+    token = uuid.uuid4().hex + uuid.uuid4().hex
+    await db.user_sessions.insert_one({
+        "session_token": token, "user_id": uid,
+        "expires_at": (now + timedelta(hours=2)).isoformat(),
+        "created_at": now.isoformat(),
+    })
+    h = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(base_url=BASE, headers=h, timeout=30, verify=False) as c:
+            w = (await c.post("/workers", json={"name":"W","mobile":"","skill":"","daily_rate":500,"worker_type":"regular"})).json()
+            for i in range(4):
+                r = await c.post("/attendance", json={"worker_id":w["id"],"date":f"2026-01-{i+1:02d}","status":"present","overtime_hours":0})
+                assert r.status_code == 200, r.text
+            r = await c.put(f"/workers/{w['id']}", json={"name":"W","mobile":"","skill":"","daily_rate":600,"worker_type":"regular"})
+            assert r.status_code == 200, r.text
+            for i in range(4):
+                r = await c.post("/attendance", json={"worker_id":w["id"],"date":f"2026-01-{i+5:02d}","status":"present","overtime_hours":0})
+                assert r.status_code == 200, r.text
+            led = (await c.get(f"/ledger/{w['id']}")).json()
+            assert led["total_earned"] == 4400.0, f"HTTP e2e mismatch: {led['total_earned']}"
+            print(f"39 HTTP e2e wage snapshot ✓  /api/ledger total_earned = ₹4,400 after PUT wage bump")
+    finally:
+        for coll in ("users","user_sessions","workers","attendance","advances","advance_returns","settlements"):
+            await db[coll].delete_many({"user_id": uid})
+        await db.user_sessions.delete_many({"session_token": token})
+
+
 TESTS = [
     test_01_earned_only,
     test_02_advance_only,
@@ -838,6 +1010,13 @@ TESTS = [
     test_30_reports_use_same_final_balance,
     test_31_repeated_settle_new_period,
     test_32_year_month_filter_stable_reload,
+    test_33_wage_change_preserves_history,
+    test_34_triple_wage_change,
+    test_35_wage_change_without_new_work,
+    test_36_legacy_row_fallback,
+    test_37_settlement_across_wage_change,
+    test_38_user_isolation_on_wage_change,
+    test_39_e2e_http_wage_snapshot,
 ]
 
 

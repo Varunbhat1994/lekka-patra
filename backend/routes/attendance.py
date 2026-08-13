@@ -42,6 +42,12 @@ class Attendance(BaseModel):
     overtime_hours: float = 0
     field_crop: Optional[str] = ""
     description: Optional[str] = ""
+    # Wage rate snapshotted at write time. Locks the wage that applied
+    # to this specific day so later edits to the worker's `daily_rate`
+    # never rewrite historical earnings. Nullable to remain backward
+    # compatible with rows created before this field existed — those
+    # rows fall back to `worker.daily_rate` at compute time.
+    daily_rate_snapshot: Optional[float] = None
     created_at: datetime = Field(default_factory=_now_utc)
 
 
@@ -78,11 +84,17 @@ async def list_attendance(
 @router.post("/attendance")
 async def upsert_attendance(a: AttendanceIn, user: dict = Depends(require_write_access)):
     # Reject attendance for workers the caller doesn't own.
-    if not await db.workers.find_one(
-        {"id": a.worker_id, "user_id": user["user_id"]}, {"_id": 1}
-    ):
+    worker = await db.workers.find_one(
+        {"id": a.worker_id, "user_id": user["user_id"]}, {"_id": 0}
+    )
+    if not worker:
         raise HTTPException(404, "Worker not found")
-    # Upsert per (worker_id, date)
+    # Upsert per (worker_id, date). NOTE: `daily_rate_snapshot` is written
+    # ONLY on the first insert for this (worker_id, date). If the row
+    # already exists, we update fields the client sent (status, hours,
+    # crop, description) but PRESERVE the existing snapshot so the wage
+    # that applied on that day never changes — even when the row is
+    # edited (e.g. absent → half_day) after a wage change.
     existing = await db.attendance.find_one({
         "user_id": user["user_id"], "worker_id": a.worker_id, "date": a.date
     }, {"_id": 0})
@@ -92,7 +104,11 @@ async def upsert_attendance(a: AttendanceIn, user: dict = Depends(require_write_
             {"$set": a.model_dump()},
         )
         return {"ok": True, "id": existing["id"]}
-    obj = Attendance(user_id=user["user_id"], **a.model_dump())
+    obj = Attendance(
+        user_id=user["user_id"],
+        daily_rate_snapshot=float(worker["daily_rate"]),
+        **a.model_dump(),
+    )
     doc = obj.model_dump()
     doc["created_at"] = doc["created_at"].isoformat()
     await db.attendance.insert_one(doc)

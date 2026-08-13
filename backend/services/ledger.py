@@ -59,7 +59,14 @@ async def compute_worker_ledger(
     total_earned = 0.0
     days_worked = 0.0
     for a in att:
-        u = _wage_units(a["status"], a.get("overtime_hours", 0), worker["daily_rate"])
+        # Prefer the wage snapshot stored on the row (locked at write
+        # time) so wage-rate edits never rewrite historical earnings.
+        # Fall back to the worker's current daily_rate for legacy rows
+        # created before `daily_rate_snapshot` existed.
+        rate = a.get("daily_rate_snapshot")
+        if rate is None:
+            rate = worker["daily_rate"]
+        u = _wage_units(a["status"], a.get("overtime_hours", 0), rate)
         total_earned += u
         if a["status"] == "present":
             days_worked += 1
