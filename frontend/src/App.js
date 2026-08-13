@@ -14,6 +14,8 @@ import Dashboard from "@/pages/Dashboard";
 import Workers from "@/pages/Workers";
 import Attendance from "@/pages/Attendance";
 import Ledger from "@/pages/Ledger";
+import WorkerHistory from "@/pages/WorkerHistory";
+import ContractorHistory from "@/pages/ContractorHistory";
 import Settings from "@/pages/Settings";
 import Paywall from "@/pages/Paywall";
 import { PaymentSuccess, PaymentCancel } from "@/pages/PaymentResult";
@@ -52,6 +54,8 @@ function AppRouter() {
       <Route path="/workers" element={<Protected><Workers /></Protected>} />
       <Route path="/attendance" element={<Protected><Attendance /></Protected>} />
       <Route path="/ledger" element={<Protected><Ledger /></Protected>} />
+      <Route path="/history/worker/:id" element={<Protected><WorkerHistory /></Protected>} />
+      <Route path="/history/contractor/:id" element={<Protected><ContractorHistory /></Protected>} />
       <Route path="/settings" element={<Protected><Settings /></Protected>} />
       <Route path="/paywall" element={<Protected><Paywall /></Protected>} />
       <Route path="/payment/success" element={<Protected><PaymentSuccess /></Protected>} />

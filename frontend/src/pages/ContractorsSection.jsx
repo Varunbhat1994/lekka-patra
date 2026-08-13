@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useApp } from "@/context/AppContext";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import {
 import { toast } from "sonner";
 import {
   Plus, HardHat, CalendarPlus, CurrencyInr, Trash,
-  Users, Wallet, X, ArrowLeft, FilePdf, MicrosoftExcelLogo, ArrowUUpLeft, WhatsappLogo, Check,
+  Users, Wallet, X, ArrowLeft, FilePdf, MicrosoftExcelLogo, ArrowUUpLeft, ClockCounterClockwise, Check,
 } from "@phosphor-icons/react";
 
 const emptyContractor = { name: "", mobile: "", notes: "" };
@@ -19,6 +20,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 export default function ContractorsSection() {
   const { t, user, API, lang } = useApp();
+  const nav = useNavigate();
   const locked = user?.access?.locked;
   const [contractors, setContractors] = useState([]);
   const [addOpen, setAddOpen] = useState(false);
@@ -152,6 +154,7 @@ export default function ContractorsSection() {
 // -------- Contractor detail sheet with two tabs --------
 function ContractorDetail({ id, onClose }) {
   const { API, user, lang, t } = useApp();
+  const nav = useNavigate();
   const locked = user?.access?.locked;
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("visits");
@@ -281,16 +284,10 @@ function ContractorDetail({ id, onClose }) {
               variant="outline" className="flex-1 min-w-[calc(33%-6px)] min-h-[40px] rounded-lg">
               <MicrosoftExcelLogo size={16} className="mr-1"/>Excel
             </Button>
-            <Button data-testid="contractor-whatsapp-btn"
-              onClick={async () => {
-                const { data: msg } = await axios.get(`${API}/reports/contractor/${id}/whatsapp?lang=${lang || "en"}`);
-                const phone = (msg.phone || "").replace(/[^\d]/g, "");
-                const text = encodeURIComponent(msg.message);
-                const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://wa.me/?text=${text}`;
-                window.open(url, "_blank");
-              }}
-              variant="outline" className="flex-1 min-w-[calc(33%-6px)] min-h-[40px] rounded-lg border-[hsl(142_60%_35%)]/40 text-[hsl(142_60%_30%)]">
-              <WhatsappLogo size={16} weight="duotone" className="mr-1"/>WA
+            <Button data-testid="contractor-history-btn"
+              onClick={() => nav(`/history/contractor/${id}`)}
+              variant="outline" className="flex-1 min-w-[calc(33%-6px)] min-h-[40px] rounded-lg">
+              <ClockCounterClockwise size={16} weight="duotone" className="mr-1"/>History
             </Button>
             {!locked && (
               <Button data-testid="contractor-settle-btn"

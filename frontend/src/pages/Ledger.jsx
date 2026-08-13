@@ -9,10 +9,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CaretRight, User, Wallet, WhatsappLogo, FilePdf, MicrosoftExcelLogo, Plus, ArrowUUpLeft, ArrowCounterClockwise } from "@phosphor-icons/react";
+import { CaretRight, User, Wallet, ClockCounterClockwise, FilePdf, MicrosoftExcelLogo, Plus, ArrowUUpLeft, ArrowCounterClockwise } from "@phosphor-icons/react";
+import { useNavigate } from "react-router-dom";
 
 export default function Ledger() {
   const { t, user, API, lang } = useApp();
+  const nav = useNavigate();
   const locked = user?.access?.locked;
   const [workers, setWorkers] = useState([]);
   const [ledgers, setLedgers] = useState({});
@@ -255,8 +257,8 @@ export default function Ledger() {
                     size="sm" variant="outline" className="flex-1 min-w-[calc(50%-4px)] rounded-lg">
                     <FilePdf size={14} className="mr-1"/>PDF
                   </Button>
-                  <Button data-testid={`wa-${w.id}`} onClick={() => whatsappShare(w)} size="sm" variant="outline" className="flex-1 min-w-[calc(50%-4px)] rounded-lg">
-                    <WhatsappLogo size={14} weight="duotone" className="mr-1"/>WhatsApp
+                  <Button data-testid={`history-${w.id}`} onClick={() => nav(`/history/worker/${w.id}`)} size="sm" variant="outline" className="flex-1 min-w-[calc(50%-4px)] rounded-lg">
+                    <ClockCounterClockwise size={14} weight="duotone" className="mr-1"/>History
                   </Button>
                   {!locked && (
                     <Button data-testid={`settle-${w.id}`} onClick={() => openSettle(w)} size="sm"
