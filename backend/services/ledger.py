@@ -68,17 +68,23 @@ async def compute_worker_ledger(
         elif a["status"] == "overtime":
             days_worked += 1 + a.get("overtime_hours", 0) / 8.0
 
+    # Advances and returns are an INDEPENDENT running balance that carries
+    # forward across settlements — they are NOT closed out by "Mark Settled".
+    # (Marking as settled only closes the wage/work portion for the cycle.
+    # The pending advance persists until the worker returns it or the owner
+    # explicitly records a return.)
     adv_q = {"user_id": user_id, "worker_id": worker["id"]}
-    if cutoff:
-        adv_q_dated = {**adv_q, "date": {"$gt": cutoff}}
-    else:
-        adv_q_dated = adv_q
-    advances = await db.advances.find(adv_q_dated, {"_id": 0}).to_list(5000)
+    advances = await db.advances.find(adv_q, {"_id": 0}).sort("date", -1).to_list(5000)
     total_advance = sum(a["amount"] for a in advances)
-    returns = await db.advance_returns.find(adv_q_dated, {"_id": 0}).sort("date", -1).to_list(5000)
+    returns = await db.advance_returns.find(adv_q, {"_id": 0}).sort("date", -1).to_list(5000)
     total_returned = sum(r["amount"] for r in returns)
     total_settled = sum(s.get("amount", 0) or 0 for s in all_settlements)
     net_advance = total_advance - total_returned
+    # `pending` is the settle amount default = current-period wage payable
+    # ONLY. The pending advance (`net_advance`) is reported separately and
+    # is deliberately excluded from this figure so that Mark Settled does
+    # not silently clear it.
+    pending = total_earned
     return {
         "worker": worker,
         "days_worked": round(days_worked, 2),
@@ -87,7 +93,7 @@ async def compute_worker_ledger(
         "total_returned": round(total_returned, 2),
         "total_settled": round(total_settled, 2),
         "net_advance": round(net_advance, 2),
-        "pending": round(total_earned - net_advance, 2),
+        "pending": round(pending, 2),
         "settled_up_to": cutoff,
         "attendance": att,
         "advances": advances,

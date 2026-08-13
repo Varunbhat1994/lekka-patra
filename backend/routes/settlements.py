@@ -44,14 +44,22 @@ class SettlementIn(BaseModel):
     worker_id: Optional[str] = None
     contractor_id: Optional[str] = None
     up_to_date: str
+    amount: Optional[float] = None  # optional override; defaults to current payable
     note: Optional[str] = ""
 
 
 @router.post("/settlements")
 async def settle(s: SettlementIn, user: dict = Depends(require_write_access)):
-    """Zero out the pending balance for a worker OR contractor by recording
-    the current pending amount as a settlement. Ledger treats settlements
-    as money paid out."""
+    """Close out the current work period for a worker OR a contractor.
+
+    For workers: the settlement records the current wage payable
+    (`ledger.pending`, which equals wages earned since the last
+    settlement). The pending advance is a separate running balance and
+    is DELIBERATELY NOT touched by this endpoint.
+
+    For contractors: same shape as before — records `net_paid` and
+    writes a compensating return so `net_paid` returns to zero.
+    """
     if not s.worker_id and not s.contractor_id:
         raise HTTPException(400, "worker_id or contractor_id required")
 
@@ -60,19 +68,37 @@ async def settle(s: SettlementIn, user: dict = Depends(require_write_access)):
         if not worker:
             raise HTTPException(404, "Worker not found")
         led = await compute_worker_ledger(user["user_id"], worker)
-        pending = max(0.0, led["pending"])
+        # Default: current wage payable. Caller may override (e.g. partial
+        # settlement or manual adjustment); we still clamp to >= 0.
+        default_amount = max(0.0, led["pending"])
+        amount = default_amount if s.amount is None else max(0.0, float(s.amount))
         doc = {
             "id": str(uuid.uuid4()),
             "user_id": user["user_id"],
             "worker_id": s.worker_id,
             "up_to_date": s.up_to_date,
-            "amount": round(pending, 2),
+            "amount": round(amount, 2),
+            # Historical snapshot of the current-period wage at settle time.
+            # Useful for audits / undo — never overwritten.
+            "period_earned": round(led["total_earned"], 2),
+            "period_days_worked": led["days_worked"],
+            # Snapshot of the outstanding advance at settle time (recorded
+            # for the record — this value is NOT subtracted from the
+            # settlement).
+            "advance_snapshot": round(led["net_advance"], 2),
             "note": s.note or "",
             "created_at": _now_utc().isoformat(),
         }
         await db.settlements.insert_one(doc)
         doc.pop("_id", None)
-        return {"ok": True, "id": doc["id"], "amount": doc["amount"], "kind": "worker"}
+        return {
+            "ok": True,
+            "id": doc["id"],
+            "amount": doc["amount"],
+            "kind": "worker",
+            "period_earned": doc["period_earned"],
+            "advance_snapshot": doc["advance_snapshot"],
+        }
 
     # Contractor settle: zero out net_paid by recording a return equal to net_paid.
     contractor = await db.contractors.find_one({"id": s.contractor_id, "user_id": user["user_id"]}, {"_id": 0})

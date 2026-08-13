@@ -34,9 +34,6 @@ def now_utc():
 
 
 # ---------------- Payments (Razorpay) ----------------
-import razorpay
-import hmac
-import hashlib
 import json as _json  # for webhook payload parsing
 
 LIFETIME_PRICE = float(os.environ.get("LIFETIME_PRICE_INR", "499"))

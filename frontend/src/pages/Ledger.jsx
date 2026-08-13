@@ -21,6 +21,13 @@ export default function Ledger() {
   const [mode, setMode] = useState("advance"); // "advance" | "return"
   const [adv, setAdv] = useState({ amount: "", method: "cash", notes: "", date: new Date().toISOString().slice(0,10) });
 
+  // Settle-dialog state — kept in a separate object so we don't collide with
+  // the advance/return dialog. `worker` holds the row being settled, `led`
+  // is a snapshot of that worker's ledger at open time (used for display so
+  // the numbers don't shift while the user edits the amount).
+  const [settleOpen, setSettleOpen] = useState(false);
+  const [settleForm, setSettleForm] = useState({ worker: null, led: null, amount: "" });
+
   const loadAll = async () => {
     const w = await axios.get(`${API}/workers`);
     setWorkers(w.data);
@@ -54,28 +61,42 @@ export default function Ledger() {
     } catch { toast.error("Failed"); }
   };
 
-  const settle = async (w) => {
-    if (!window.confirm(`Mark ${w.name} settled up to today?`)) return;
+  const openSettle = (w) => {
+    const l = ledgers[w.id];
+    const currentPayable = Math.max(0, Number(l?.pending ?? 0));
+    setSettleForm({ worker: w, led: l, amount: String(currentPayable) });
+    setSettleOpen(true);
+  };
+
+  const settle = async () => {
+    const w = settleForm.worker;
+    if (!w) return;
+    const parsed = parseFloat(settleForm.amount);
+    if (!(parsed >= 0)) {
+      toast.error(lang === "kn" ? "ಸರಿಯಾದ ಮೊತ್ತ ನಮೂದಿಸಿ" : "Enter a valid amount");
+      return;
+    }
     try {
       await axios.post(`${API}/settlements`, {
         worker_id: w.id,
-        up_to_date: new Date().toISOString().slice(0,10),
+        up_to_date: new Date().toISOString().slice(0, 10),
+        amount: parsed,
         note: "",
       });
-      // Optimistic: settlement acts as cutoff → everything before today counts as closed.
+      // Optimistic update: only the WORK portion resets. Advance balance
+      // (`total_advance`, `total_returned`, `net_advance`) MUST be
+      // preserved — carried forward to the next cycle.
       setLedgers(prev => ({
         ...prev,
         [w.id]: prev[w.id] ? {
           ...prev[w.id],
           days_worked: 0,
           total_earned: 0,
-          total_advance: 0,
-          total_returned: 0,
-          net_advance: 0,
           pending: 0,
-          total_settled: (prev[w.id].total_settled ?? 0) + (prev[w.id].pending ?? 0),
+          total_settled: (prev[w.id].total_settled ?? 0) + parsed,
         } : prev[w.id],
       }));
+      setSettleOpen(false);
       toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥ ದಾಖಲಿಸಲಾಗಿದೆ" : "Settled");
       loadAll();
     } catch { toast.error("Failed"); }
@@ -182,7 +203,7 @@ export default function Ledger() {
                     <WhatsappLogo size={14} weight="duotone" className="mr-1"/>WhatsApp
                   </Button>
                   {!locked && (
-                    <Button data-testid={`settle-${w.id}`} onClick={() => settle(w)} size="sm"
+                    <Button data-testid={`settle-${w.id}`} onClick={() => openSettle(w)} size="sm"
                       className="basis-full w-full rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 whitespace-normal h-auto min-h-[36px] py-1.5 leading-tight">
                       <Wallet size={14} className="mr-1 shrink-0"/>
                       <span className="truncate">{t("mark_settled")}</span>
@@ -255,6 +276,70 @@ export default function Ledger() {
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={()=>setAdvOpen(false)}>{t("cancel")}</Button>
             <Button data-testid="save-adv-btn" onClick={saveAdvance} className="bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90">{t("save")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Settle dialog — separate from advance/return */}
+      <Dialog open={settleOpen} onOpenChange={setSettleOpen}>
+        <DialogContent className="max-w-[92%] rounded-xl">
+          <DialogHeader>
+            <DialogTitle data-testid="settle-dialog-title">
+              {lang === "kn" ? "ಇತ್ಯರ್ಥಗೊಳಿಸಿ" : "Settle"} — {settleForm.worker?.name}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-border bg-secondary/40 p-3">
+                <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  {lang === "kn" ? "ಪ್ರಸ್ತುತ ಬಾಕಿ" : "Current payable"}
+                </div>
+                <div className="text-lg font-semibold text-[hsl(var(--primary))] mt-1" data-testid="settle-current-payable">
+                  ₹{Math.max(0, Number(settleForm.led?.pending ?? 0))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-secondary/40 p-3">
+                <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  {lang === "kn" ? "ಬಾಕಿ ಮುಂಗಡ" : "Pending advance"}
+                </div>
+                <div className="text-lg font-semibold text-[hsl(var(--accent))] mt-1" data-testid="settle-pending-advance">
+                  ₹{Math.max(0, Number(settleForm.led?.net_advance ?? 0))}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs uppercase tracking-[0.15em] text-muted-foreground">
+                {lang === "kn" ? "ಇತ್ಯರ್ಥ ಮೊತ್ತ" : "Settlement Amount"}
+              </Label>
+              <Input
+                data-testid="settle-amount-input"
+                type="number"
+                inputMode="decimal"
+                value={settleForm.amount}
+                onChange={(e) => setSettleForm({ ...settleForm, amount: e.target.value })}
+                className="min-h-[48px] text-lg"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {lang === "kn"
+                  ? "ಪ್ರಸ್ತುತ ಕೆಲಸದ ಅವಧಿಯನ್ನು ಮಾತ್ರ ಇತ್ಯರ್ಥಗೊಳಿಸುತ್ತದೆ. ಬಾಕಿ ಮುಂಗಡ ಬದಲಾಗುವುದಿಲ್ಲ."
+                  : "Settles the current work period only. Pending advance is carried forward."}
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setSettleOpen(false)}>
+              {t("cancel")}
+            </Button>
+            <Button
+              data-testid="confirm-settle-btn"
+              onClick={settle}
+              className="bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90"
+            >
+              {lang === "kn" ? "ಇತ್ಯರ್ಥಗೊಳಿಸಿ" : "Confirm Settlement"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
