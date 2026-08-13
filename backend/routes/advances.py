@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from core.database import db
@@ -78,6 +78,13 @@ async def list_advances(user: dict = Depends(get_current_user), worker_id: Optio
 
 @router.post("/advances")
 async def create_advance(a: AdvanceIn, user: dict = Depends(require_write_access)):
+    # Reject records referencing a worker not owned by the caller.
+    # Prevents cross-account orphan rows and keeps every advance tied
+    # to a (user_id, worker_id) pair the ledger can trust.
+    if not await db.workers.find_one(
+        {"id": a.worker_id, "user_id": user["user_id"]}, {"_id": 1}
+    ):
+        raise HTTPException(404, "Worker not found")
     obj = Advance(user_id=user["user_id"], **a.model_dump())
     doc = obj.model_dump()
     doc["created_at"] = doc["created_at"].isoformat()
@@ -104,6 +111,10 @@ async def list_returns(user: dict = Depends(get_current_user), worker_id: Option
 
 @router.post("/returns")
 async def create_return(r: ReturnIn, user: dict = Depends(require_write_access)):
+    if not await db.workers.find_one(
+        {"id": r.worker_id, "user_id": user["user_id"]}, {"_id": 1}
+    ):
+        raise HTTPException(404, "Worker not found")
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": user["user_id"],

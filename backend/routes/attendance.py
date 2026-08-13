@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from core.database import db
@@ -77,6 +77,11 @@ async def list_attendance(
 
 @router.post("/attendance")
 async def upsert_attendance(a: AttendanceIn, user: dict = Depends(require_write_access)):
+    # Reject attendance for workers the caller doesn't own.
+    if not await db.workers.find_one(
+        {"id": a.worker_id, "user_id": user["user_id"]}, {"_id": 1}
+    ):
+        raise HTTPException(404, "Worker not found")
     # Upsert per (worker_id, date)
     existing = await db.attendance.find_one({
         "user_id": user["user_id"], "worker_id": a.worker_id, "date": a.date

@@ -1,11 +1,20 @@
-"""Dashboard summary route."""
+"""Dashboard summary route.
+
+Aggregated numbers on the dashboard use the SAME period-aware ledger
+model as the Ledger and Worker History pages. `outstanding_advance`
+is the sum of positive per-worker net advances (money that hasn't
+been returned yet). `pending_wage` is the sum of positive
+per-worker final balances (what the owner still owes workers). This
+guarantees the dashboard totals equal the sum of what the user sees on
+each individual worker card — no separate formula.
+"""
 from typing import Optional
 
 from fastapi import APIRouter, Depends
 
 from core.database import db
 from security.authentication import get_current_user
-from services.ledger import _wage_units, _compute_pending_list
+from services.ledger import _wage_units, _compute_pending_list, compute_worker_ledger
 from datetime import datetime, timezone
 
 
@@ -30,19 +39,22 @@ async def dashboard(user: dict = Depends(get_current_user)):
         if not w: continue
         est_wage_today += _wage_units(a["status"], a.get("overtime_hours", 0), w["daily_rate"])
 
-    # Totals
-    all_att = await db.attendance.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(20000)
-    all_adv = await db.advances.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(20000)
-    total_earned = 0.0
-    for a in all_att:
-        w = workers_by_id.get(a["worker_id"])
-        if not w: continue
-        total_earned += _wage_units(a["status"], a.get("overtime_hours", 0), w["daily_rate"])
-    total_advance = sum(a["amount"] for a in all_adv)
-    outstanding_advance = total_advance
-    pending_wage = round(total_earned - total_advance, 2)
+    # Aggregate current-cycle balances by summing per-worker ledgers so
+    # dashboard totals match what the Ledger UI shows for each worker.
+    outstanding_advance = 0.0
+    pending_wage = 0.0
+    for w in workers:
+        led = await compute_worker_ledger(user["user_id"], w)
+        adv_net = float(led["net_advance"])
+        if adv_net > 0:
+            outstanding_advance += adv_net
+        fb = float(led["final_balance"])
+        if fb > 0:
+            pending_wage += fb
 
-    # Monthly by field/crop (last 6 months)
+    # Monthly by field/crop (last 6 months) — this is a historical breakdown,
+    # so we still read ALL attendance (unchanged behavior).
+    all_att = await db.attendance.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(20000)
     from collections import defaultdict
     monthly = defaultdict(lambda: defaultdict(float))
     for a in all_att:
@@ -69,7 +81,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "present_today": present_today,
         "estimated_wage_today": round(est_wage_today, 2),
         "outstanding_advance": round(outstanding_advance, 2),
-        "pending_wage": pending_wage,
+        "pending_wage": round(pending_wage, 2),
         "chart": chart,
         "crops": sorted(list(all_crops)),
         "pending_list": await _compute_pending_list(user["user_id"], workers),

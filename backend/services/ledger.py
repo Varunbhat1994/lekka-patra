@@ -173,8 +173,13 @@ async def compute_contractor_ledger(
 
 
 async def _compute_pending_list(user_id: str, workers: list) -> list:
-    """List of {name, pending, type} for workers/contractors who have
-    received an advance/payment. Used by the /dashboard route."""
+    """List of {name, pending, advance, type} for workers/contractors who
+    have received an advance/payment.
+
+    `pending` here is the same period-aware `final_balance` used by the
+    Ledger UI — one accounting model across the whole app. Positive means
+    owner still owes the worker; negative means worker owes owner.
+    """
     items = []
     # Workers with advance given
     for w in workers:
@@ -185,8 +190,8 @@ async def _compute_pending_list(user_id: str, workers: list) -> list:
         items.append({
             "type": "worker",
             "name": w["name"],
-            "pending": led["pending"],
-            "advance": led["total_advance"],
+            "pending": led["final_balance"],
+            "advance": led["net_advance"],
         })
     # Contractors with payment given
     contractors = await db.contractors.find({"user_id": user_id}, {"_id": 0}).to_list(500)
@@ -201,7 +206,10 @@ async def _compute_pending_list(user_id: str, workers: list) -> list:
         items.append({
             "type": "contractor",
             "name": c["name"],
-            "pending": net_paid,
-            "advance": round(total_paid, 2),
+            # For contractors, "pending" is the outstanding amount the
+            # contractor still owes the owner — expressed as negative to
+            # keep the marquee's sign convention consistent with workers.
+            "pending": -net_paid,
+            "advance": net_paid,
         })
     return items
