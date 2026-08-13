@@ -231,8 +231,30 @@ export default function Ledger() {
                   <Stat label={t("days_worked")} val={l?.days_worked ?? "—"} />
                   <Stat label={t("total_earned")} val={l ? `₹${l.total_earned}` : "—"} />
                   <Stat label={lang === "kn" ? "ನಿವ್ವಳ ಮುಂಗಡ" : "Net advance"} val={l ? `₹${l.net_advance ?? l.total_advance}` : "—"} accent />
-                  <Stat label={t("pending")} val={l ? `₹${l.pending}` : "—"} primary />
+                  <Stat label={lang === "kn" ? "ಅಂತಿಮ ಬಾಕಿ" : "Balance"} val={l ? `₹${Math.abs(Number(l.final_balance ?? 0))}` : "—"} primary />
                 </div>
+                {l && (() => {
+                  const fb = Number(l.final_balance ?? 0);
+                  if (fb > 0) {
+                    return (
+                      <div className="text-xs font-semibold text-[hsl(var(--primary))]" data-testid={`bal-msg-${w.id}`}>
+                        {lang === "kn" ? `ನೀವು ಕಾರ್ಮಿಕರಿಗೆ ₹${fb} ಸಾಲ` : `You owe worker ₹${fb}`}
+                      </div>
+                    );
+                  }
+                  if (fb < 0) {
+                    return (
+                      <div className="text-xs font-semibold text-[hsl(var(--accent))]" data-testid={`bal-msg-${w.id}`}>
+                        {lang === "kn" ? `ಕಾರ್ಮಿಕ ನಿಮಗೆ ₹${-fb} ಸಾಲ` : `Worker owes you ₹${-fb}`}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="text-xs text-muted-foreground" data-testid={`bal-msg-${w.id}`}>
+                      {lang === "kn" ? "ಸಮತೋಲನ" : "Balanced"}
+                    </div>
+                  );
+                })()}
                 {l && (l.total_returned || 0) > 0 && (
                   <div className="text-[11px] text-muted-foreground -mt-1">
                     {lang === "kn" ? "ವಾಪಸಾತಿ" : "Returned"}: <span className="text-[hsl(var(--primary))] font-semibold">₹{l.total_returned}</span>

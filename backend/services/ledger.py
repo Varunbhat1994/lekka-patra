@@ -94,6 +94,11 @@ async def compute_worker_ledger(
         settlements_out = all_settlements
     net_advance = total_advance - total_returned
     pending = total_earned
+    # Single source of truth for the "final balance" the UI shows.
+    # Positive  → employer owes worker  ("You owe worker ₹X")
+    # Negative  → worker owes employer  ("Worker owes you ₹X")
+    # Zero      → balanced
+    final_balance = total_earned - net_advance - total_settled
     return {
         "worker": worker,
         "days_worked": round(days_worked, 2),
@@ -103,6 +108,7 @@ async def compute_worker_ledger(
         "total_settled": round(total_settled, 2),
         "net_advance": round(net_advance, 2),
         "pending": round(pending, 2),
+        "final_balance": round(final_balance, 2),
         "settled_up_to": cutoff,
         "attendance": att,
         "advances": advances,

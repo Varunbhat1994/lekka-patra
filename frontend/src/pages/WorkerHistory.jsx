@@ -59,11 +59,12 @@ export default function WorkerHistory() {
   const present = (led?.attendance||[]).filter(a => a.status === "present").length;
   const absent  = (led?.attendance||[]).filter(a => a.status === "absent").length;
   const netAdv = led?.net_advance ?? 0;
-  const owesDir = netAdv > 0
-    ? { label: lang==="kn" ? "ಕಾರ್ಮಿಕ ನಿಮಗೆ ಸಾಲ" : "Worker owes you", val: netAdv }
-    : netAdv < 0
-    ? { label: lang==="kn" ? "ನೀವು ಕಾರ್ಮಿಕರಿಗೆ ಸಾಲ" : "You owe worker", val: -netAdv }
-    : { label: lang==="kn" ? "ಸಮತೋಲನ" : "Balanced", val: 0 };
+  const finalBal = Number(led?.final_balance ?? 0);
+  const owesDir = finalBal > 0
+    ? { label: lang==="kn" ? "ನೀವು ಕಾರ್ಮಿಕರಿಗೆ ಸಾಲ" : "You owe worker", val: finalBal, tone: "primary" }
+    : finalBal < 0
+    ? { label: lang==="kn" ? "ಕಾರ್ಮಿಕ ನಿಮಗೆ ಸಾಲ" : "Worker owes you", val: -finalBal, tone: "accent" }
+    : { label: lang==="kn" ? "ಸಮತೋಲನ" : "Balanced", val: 0, tone: "muted" };
 
   const downloadPDF = async () => {
     try {
@@ -114,9 +115,15 @@ export default function WorkerHistory() {
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ವಾಪಸ್":"Total Returns"} value={`₹${led?.total_returned ?? 0}`} />
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ಇತ್ಯರ್ಥ":"Total Settled"} value={`₹${led?.total_settled ?? 0}`} tone="accent" />
         </div>
+        <div className="rounded-xl border border-border bg-card p-3" data-testid="net-advance-card">
+          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+            {lang==="kn" ? "ನಿವ್ವಳ ಮುಂಗಡ" : "Net Advance"}
+          </div>
+          <div className="text-lg font-semibold text-[hsl(var(--accent))] mt-1">₹{netAdv}</div>
+        </div>
         <div className="rounded-xl border border-border bg-card p-3" data-testid="balance-card">
           <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{owesDir.label}</div>
-          <div className={`text-xl font-bold mt-1 ${netAdv>0 ? "text-[hsl(var(--accent))]" : netAdv<0 ? "text-red-600" : ""}`}>
+          <div className={`text-xl font-bold mt-1 ${owesDir.tone === "primary" ? "text-[hsl(var(--primary))]" : owesDir.tone === "accent" ? "text-[hsl(var(--accent))]" : "text-muted-foreground"}`}>
             ₹{owesDir.val}
           </div>
         </div>
