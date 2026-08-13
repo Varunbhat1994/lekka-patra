@@ -55,7 +55,7 @@ async def compute_worker_ledger(
         q["date"] = {"$gte": start, "$lte": end}
     elif cutoff:
         q["date"] = {"$gt": cutoff}
-    att = await db.attendance.find(q, {"_id": 0}).to_list(5000)
+    att = await db.attendance.find(q, {"_id": 0}).sort("date", -1).to_list(10000)
     total_earned = 0.0
     days_worked = 0.0
     for a in att:
@@ -68,22 +68,31 @@ async def compute_worker_ledger(
         elif a["status"] == "overtime":
             days_worked += 1 + a.get("overtime_hours", 0) / 8.0
 
-    # Advances and returns are an INDEPENDENT running balance that carries
-    # forward across settlements — they are NOT closed out by "Mark Settled".
-    # (Marking as settled only closes the wage/work portion for the cycle.
-    # The pending advance persists until the worker returns it or the owner
-    # explicitly records a return.)
+    # Advances and returns.
+    # For CURRENT-cycle mode (no explicit start/end): they are an
+    # independent running balance that carries forward across settlements.
+    # For HISTORY mode (start & end supplied): filter by the same date
+    # window so year/month views show only what happened in that period.
     adv_q = {"user_id": user_id, "worker_id": worker["id"]}
-    advances = await db.advances.find(adv_q, {"_id": 0}).sort("date", -1).to_list(5000)
+    if start and end:
+        adv_q["date"] = {"$gte": start, "$lte": end}
+    advances = await db.advances.find(adv_q, {"_id": 0}).sort("date", -1).to_list(10000)
     total_advance = sum(a["amount"] for a in advances)
-    returns = await db.advance_returns.find(adv_q, {"_id": 0}).sort("date", -1).to_list(5000)
+    returns = await db.advance_returns.find(adv_q, {"_id": 0}).sort("date", -1).to_list(10000)
     total_returned = sum(r["amount"] for r in returns)
-    total_settled = sum(s.get("amount", 0) or 0 for s in all_settlements)
+    # Settlements in history mode: filter by up_to_date; in current mode
+    # keep all_settlements (used to compute cutoff above).
+    if start and end:
+        settlements_in_range = [
+            s for s in all_settlements
+            if s.get("up_to_date") and start <= s["up_to_date"] <= end
+        ]
+        total_settled = sum(s.get("amount", 0) or 0 for s in settlements_in_range)
+        settlements_out = settlements_in_range
+    else:
+        total_settled = sum(s.get("amount", 0) or 0 for s in all_settlements)
+        settlements_out = all_settlements
     net_advance = total_advance - total_returned
-    # `pending` is the settle amount default = current-period wage payable
-    # ONLY. The pending advance (`net_advance`) is reported separately and
-    # is deliberately excluded from this figure so that Mark Settled does
-    # not silently clear it.
     pending = total_earned
     return {
         "worker": worker,
@@ -98,7 +107,44 @@ async def compute_worker_ledger(
         "attendance": att,
         "advances": advances,
         "returns": returns,
-        "settlements": all_settlements,
+        "settlements": settlements_out,
+        "range": {"start": start, "end": end} if (start and end) else None,
+    }
+
+
+async def compute_contractor_ledger(
+    user_id: str,
+    contractor: dict,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+) -> dict:
+    """Contractor equivalent of compute_worker_ledger — supports the same
+    optional date-range filter for year/month history views. Ownership is
+    the caller's responsibility (pass a contractor doc already scoped by
+    user_id). This is the single source of truth used by both the UI
+    ledger route and the PDF/Excel export."""
+    cid = contractor["id"]
+    base = {"user_id": user_id, "contractor_id": cid}
+    dated = dict(base)
+    if start and end:
+        dated["date"] = {"$gte": start, "$lte": end}
+    visits = await db.contractor_visits.find(dated, {"_id": 0}).sort("date", -1).to_list(10000)
+    payments = await db.contractor_payments.find(dated, {"_id": 0}).sort("date", -1).to_list(10000)
+    returns = await db.contractor_returns.find(dated, {"_id": 0}).sort("date", -1).to_list(10000)
+    total_paid = sum(p["amount"] for p in payments)
+    total_returned = sum(r["amount"] for r in returns)
+    net_paid = round(total_paid - total_returned, 2)
+    return {
+        "contractor": contractor,
+        "total_visits": len(visits),
+        "total_workers_brought": sum(v.get("workers_count", 0) for v in visits),
+        "total_paid": round(total_paid, 2),
+        "total_returned": round(total_returned, 2),
+        "net_paid": net_paid,
+        "visits": visits,
+        "payments": payments,
+        "returns": returns,
+        "range": {"start": start, "end": end} if (start and end) else None,
     }
 
 

@@ -26,17 +26,35 @@ export default function Ledger() {
   // is a snapshot of that worker's ledger at open time (used for display so
   // the numbers don't shift while the user edits the amount).
   const [settleOpen, setSettleOpen] = useState(false);
-  const [settleForm, setSettleForm] = useState({ worker: null, led: null, amount: "" });
+  const [settleForm, setSettleForm] = useState({ worker: null, led: null, mode: "actual_paid", actual: "" });
+
+  // History filter — year/month. Empty = current-cycle view.
+  const [histYear, setHistYear] = useState("");
+  const [histMonth, setHistMonth] = useState("");
+
+  const rangeParams = () => {
+    if (!histYear) return "";
+    const y = parseInt(histYear, 10);
+    if (histMonth) {
+      const m = parseInt(histMonth, 10);
+      const first = `${y}-${String(m).padStart(2,"0")}-01`;
+      const nextMonth = m === 12 ? new Date(y+1, 0, 1) : new Date(y, m, 1);
+      const last = new Date(nextMonth.getTime() - 86400000).toISOString().slice(0,10);
+      return `?start=${first}&end=${last}`;
+    }
+    return `?start=${y}-01-01&end=${y}-12-31`;
+  };
 
   const loadAll = async () => {
     const w = await axios.get(`${API}/workers`);
     setWorkers(w.data);
-    const results = await Promise.all(w.data.map(x => axios.get(`${API}/ledger/${x.id}`).then(r=>r.data).catch(()=>null)));
+    const q = rangeParams();
+    const results = await Promise.all(w.data.map(x => axios.get(`${API}/ledger/${x.id}${q}`).then(r=>r.data).catch(()=>null)));
     const map = {};
     w.data.forEach((x, i) => { if (results[i]) map[x.id] = results[i]; });
     setLedgers(map);
   };
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); }, [histYear, histMonth]);
 
   const openAdvance = (w, initialMode = "advance") => {
     setSelected(w);
@@ -61,45 +79,50 @@ export default function Ledger() {
     } catch { toast.error("Failed"); }
   };
 
-  const openSettle = (w) => {
-    const l = ledgers[w.id];
-    const currentPayable = Math.max(0, Number(l?.pending ?? 0));
-    setSettleForm({ worker: w, led: l, amount: String(currentPayable) });
+  const openSettle = async (w) => {
+    // Always use CURRENT-cycle ledger for settle (ignore history filter).
+    let l;
+    try {
+      const r = await axios.get(`${API}/ledger/${w.id}`);
+      l = r.data;
+    } catch { l = ledgers[w.id]; }
+    const earned = Math.max(0, Number(l?.pending ?? 0));
+    setSettleForm({ worker: w, led: l, mode: "actual_paid", actual: String(earned) });
     setSettleOpen(true);
   };
 
   const settle = async () => {
     const w = settleForm.worker;
     if (!w) return;
-    const parsed = parseFloat(settleForm.amount);
-    if (!(parsed >= 0)) {
-      toast.error(lang === "kn" ? "ಸರಿಯಾದ ಮೊತ್ತ ನಮೂದಿಸಿ" : "Enter a valid amount");
-      return;
+    const body = {
+      worker_id: w.id,
+      up_to_date: new Date().toISOString().slice(0, 10),
+      mode: settleForm.mode,
+      note: "",
+    };
+    if (settleForm.mode === "actual_paid") {
+      const parsed = parseFloat(settleForm.actual);
+      if (!(parsed >= 0)) {
+        toast.error(lang === "kn" ? "ಸರಿಯಾದ ಮೊತ್ತ ನಮೂದಿಸಿ" : "Enter a valid amount");
+        return;
+      }
+      body.actual_paid = parsed;
     }
     try {
-      await axios.post(`${API}/settlements`, {
-        worker_id: w.id,
-        up_to_date: new Date().toISOString().slice(0, 10),
-        amount: parsed,
-        note: "",
-      });
-      // Optimistic update: only the WORK portion resets. Advance balance
-      // (`total_advance`, `total_returned`, `net_advance`) MUST be
-      // preserved — carried forward to the next cycle.
-      setLedgers(prev => ({
-        ...prev,
-        [w.id]: prev[w.id] ? {
-          ...prev[w.id],
-          days_worked: 0,
-          total_earned: 0,
-          pending: 0,
-          total_settled: (prev[w.id].total_settled ?? 0) + parsed,
-        } : prev[w.id],
-      }));
+      const r = await axios.post(`${API}/settlements`, body);
+      const d = r.data || {};
       setSettleOpen(false);
-      toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥ ದಾಖಲಿಸಲಾಗಿದೆ" : "Settled");
+      if (d.worker_owes_user > 0) {
+        toast.success(lang === "kn" ? `ಇತ್ಯರ್ಥ ಆಗಿದೆ · ಕಾರ್ಮಿಕ ನಿಮಗೆ ₹${d.worker_owes_user} ಸಾಲ` : `Settled · Worker owes you ₹${d.worker_owes_user}`);
+      } else if (d.new_advance_created > 0) {
+        toast.success(lang === "kn" ? `ಇತ್ಯರ್ಥ · ಹೊಸ ಮುಂಗಡ ₹${d.new_advance_created}` : `Settled · New advance ₹${d.new_advance_created} created`);
+      } else {
+        toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥಗೊಂಡಿದೆ" : "Settled");
+      }
       loadAll();
-    } catch { toast.error("Failed"); }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed");
+    }
   };
 
   const undoSettle = async (w, settlement) => {
@@ -138,14 +161,47 @@ export default function Ledger() {
         <TrialBanner />
 
         <div className="flex gap-2">
-          <Button data-testid="export-pdf-btn" onClick={() => downloadFile("/reports/pdf", "farm_report.pdf")}
+          <Button data-testid="export-pdf-btn" onClick={() => downloadFile(`/reports/pdf${rangeParams()}`, "farm_report.pdf")}
             variant="outline" className="flex-1 min-h-[44px] rounded-lg">
             <FilePdf size={18} weight="duotone" className="mr-1"/>{t("export_pdf")}
           </Button>
-          <Button data-testid="export-excel-btn" onClick={() => downloadFile("/reports/excel", "farm_report.xlsx")}
+          <Button data-testid="export-excel-btn" onClick={() => downloadFile(`/reports/excel${rangeParams()}`, "farm_report.xlsx")}
             variant="outline" className="flex-1 min-h-[44px] rounded-lg">
             <MicrosoftExcelLogo size={18} weight="duotone" className="mr-1"/>{t("export_excel")}
           </Button>
+        </div>
+
+        {/* Year / Month history filter — empty = current cycle */}
+        <div className="rounded-xl border border-border bg-card p-3 flex items-center gap-2" data-testid="history-filter">
+          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+            {lang === "kn" ? "ಇತಿಹಾಸ" : "History"}
+          </div>
+          <select
+            data-testid="history-year"
+            value={histYear}
+            onChange={(e) => { setHistYear(e.target.value); if (!e.target.value) setHistMonth(""); }}
+            className="min-h-[36px] rounded-md border border-border bg-white px-2 text-sm flex-1"
+          >
+            <option value="">{lang === "kn" ? "ಪ್ರಸ್ತುತ" : "Current"}</option>
+            {(() => {
+              const now = new Date().getFullYear();
+              const years = [];
+              for (let y = now; y >= now - 5; y--) years.push(y);
+              return years.map(y => <option key={y} value={y}>{y}</option>);
+            })()}
+          </select>
+          <select
+            data-testid="history-month"
+            value={histMonth}
+            onChange={(e) => setHistMonth(e.target.value)}
+            disabled={!histYear}
+            className="min-h-[36px] rounded-md border border-border bg-white px-2 text-sm flex-1 disabled:opacity-50"
+          >
+            <option value="">{lang === "kn" ? "ಪೂರ್ಣ ವರ್ಷ" : "Full year"}</option>
+            {["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map((m,i) => (
+              <option key={i} value={i+1}>{m}</option>
+            ))}
+          </select>
         </div>
 
         {workers.length === 0 && (
@@ -293,7 +349,7 @@ export default function Ledger() {
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg border border-border bg-secondary/40 p-3">
                 <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                  {lang === "kn" ? "ಪ್ರಸ್ತುತ ಬಾಕಿ" : "Current payable"}
+                  {lang === "kn" ? "ಈ ಅವಧಿಯ ಗಳಿಕೆ" : "Earned this period"}
                 </div>
                 <div className="text-lg font-semibold text-[hsl(var(--primary))] mt-1" data-testid="settle-current-payable">
                   ₹{Math.max(0, Number(settleForm.led?.pending ?? 0))}
@@ -309,24 +365,117 @@ export default function Ledger() {
               </div>
             </div>
 
-            <div>
-              <Label className="text-xs uppercase tracking-[0.15em] text-muted-foreground">
-                {lang === "kn" ? "ಇತ್ಯರ್ಥ ಮೊತ್ತ" : "Settlement Amount"}
-              </Label>
-              <Input
-                data-testid="settle-amount-input"
-                type="number"
-                inputMode="decimal"
-                value={settleForm.amount}
-                onChange={(e) => setSettleForm({ ...settleForm, amount: e.target.value })}
-                className="min-h-[48px] text-lg"
-              />
-              <p className="text-[11px] text-muted-foreground mt-1">
-                {lang === "kn"
-                  ? "ಪ್ರಸ್ತುತ ಕೆಲಸದ ಅವಧಿಯನ್ನು ಮಾತ್ರ ಇತ್ಯರ್ಥಗೊಳಿಸುತ್ತದೆ. ಬಾಕಿ ಮುಂಗಡ ಬದಲಾಗುವುದಿಲ್ಲ."
-                  : "Settles the current work period only. Pending advance is carried forward."}
-              </p>
+            {/* Mode toggle — Adjust from advance vs Pay in cash */}
+            <div className="grid grid-cols-2 gap-2" role="radiogroup">
+              {[
+                { key: "actual_paid",     label: lang==="kn" ? "ನಗದು ಪಾವತಿ"   : "Pay in cash" },
+                { key: "adjust_advance",  label: lang==="kn" ? "ಮುಂಗಡದಿಂದ ಕಳೆ" : "Adjust from advance" },
+              ].map(opt => {
+                const active = settleForm.mode === opt.key;
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    data-testid={`settle-mode-${opt.key}`}
+                    onClick={() => setSettleForm({ ...settleForm, mode: opt.key })}
+                    aria-pressed={active}
+                    className={`min-h-[44px] rounded-lg border text-sm font-medium transition-all active:scale-[0.98] ${
+                      active
+                        ? "border-transparent bg-[hsl(var(--primary))] text-white"
+                        : "border-border bg-white text-muted-foreground hover:bg-secondary/40"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
+
+            {settleForm.mode === "actual_paid" ? (
+              <div>
+                <Label className="text-xs uppercase tracking-[0.15em] text-muted-foreground">
+                  {lang === "kn" ? "ಇಂದು ಪಾವತಿಸಿದ ಮೊತ್ತ" : "Actual amount paid today"}
+                </Label>
+                <Input
+                  data-testid="settle-amount-input"
+                  type="number"
+                  inputMode="decimal"
+                  value={settleForm.actual}
+                  onChange={(e) => setSettleForm({ ...settleForm, actual: e.target.value })}
+                  className="min-h-[48px] text-lg"
+                />
+                {(() => {
+                  const earned = Math.max(0, Number(settleForm.led?.pending ?? 0));
+                  const actual = Number(settleForm.actual || 0);
+                  if (actual > earned) {
+                    const extra = actual - earned;
+                    return (
+                      <p className="text-[11px] text-[hsl(var(--accent))] mt-1" data-testid="settle-preview">
+                        {lang === "kn"
+                          ? `ಹೆಚ್ಚುವರಿ ₹${extra} ಹೊಸ ಮುಂಗಡವಾಗಿ ದಾಖಲಾಗುತ್ತದೆ`
+                          : `Extra ₹${extra} will be recorded as a new advance`}
+                      </p>
+                    );
+                  }
+                  if (actual < earned) {
+                    return (
+                      <p className="text-[11px] text-red-600 mt-1" data-testid="settle-preview">
+                        {lang === "kn"
+                          ? "ಗಳಿಸಿದ ಮೊತ್ತಕ್ಕಿಂತ ಕಡಿಮೆ. 'ಮುಂಗಡದಿಂದ ಕಳೆ' ಆಯ್ಕೆ ಬಳಸಿ ಅಥವಾ ಗಳಿಸಿದ ಮೊತ್ತ ಪಾವತಿಸಿ."
+                          : "Less than earned. Use 'Adjust from advance' or pay at least the earned amount."}
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className="text-[11px] text-muted-foreground mt-1" data-testid="settle-preview">
+                      {lang === "kn" ? "ನಿಖರವಾಗಿ ಗಳಿಸಿದ ಮೊತ್ತ ಪಾವತಿ" : "Paying exactly the earned amount"}
+                    </p>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border bg-secondary/30 p-3" data-testid="settle-preview">
+                {(() => {
+                  const earned = Math.max(0, Number(settleForm.led?.pending ?? 0));
+                  const adv = Math.max(0, Number(settleForm.led?.net_advance ?? 0));
+                  const owes = adv - earned;
+                  if (owes > 0) {
+                    return (
+                      <p className="text-sm">
+                        {lang === "kn"
+                          ? `ಇತ್ಯರ್ಥ ನಂತರ: `
+                          : `After settle: `}
+                        <span className="font-semibold text-[hsl(var(--accent))]">
+                          {lang === "kn" ? `ಕಾರ್ಮಿಕ ನಿಮಗೆ ₹${owes} ಸಾಲ` : `Worker owes you ₹${owes}`}
+                        </span>
+                      </p>
+                    );
+                  }
+                  if (owes < 0) {
+                    return (
+                      <p className="text-sm">
+                        {lang === "kn"
+                          ? `ಇತ್ಯರ್ಥ ನಂತರ: `
+                          : `After settle: `}
+                        <span className="font-semibold text-red-600">
+                          {lang === "kn" ? `ನೀವು ಕಾರ್ಮಿಕರಿಗೆ ₹${-owes} ಸಾಲ` : `You owe worker ₹${-owes}`}
+                        </span>
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className="text-sm text-muted-foreground">
+                      {lang === "kn" ? "ಇತ್ಯರ್ಥ ನಂತರ ಎಲ್ಲಾ ಬ್ಯಾಲೆನ್ಸ್ ಶೂನ್ಯ" : "Balances fully settled (₹0)"}
+                    </p>
+                  );
+                })()}
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {lang === "kn"
+                    ? "ನಗದು ವಿನಿಮಯವಿಲ್ಲ. ಗಳಿಸಿದ ಮೊತ್ತವನ್ನು ಮುಂಗಡದಿಂದ ಕಳೆಯಲಾಗುತ್ತದೆ."
+                    : "No cash exchanged. Earned amount is deducted from the advance."}
+                </p>
+              </div>
+            )}
           </div>
 
           <DialogFooter className="gap-2">

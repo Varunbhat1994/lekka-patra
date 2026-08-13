@@ -14,7 +14,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 
 from core.database import db
 from security.authentication import get_current_user
-from services.ledger import compute_worker_ledger
+from services.ledger import compute_worker_ledger, compute_contractor_ledger
 
 
 router = APIRouter()
@@ -25,7 +25,12 @@ def now_utc():
 
 
 @router.get("/reports/pdf")
-async def report_pdf(user: dict = Depends(get_current_user), worker_id: Optional[str] = None):
+async def report_pdf(
+    user: dict = Depends(get_current_user),
+    worker_id: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+):
     workers_query = {"user_id": user["user_id"]}
     if worker_id:
         workers_query["id"] = worker_id
@@ -38,10 +43,12 @@ async def report_pdf(user: dict = Depends(get_current_user), worker_id: Optional
     story.append(Paragraph("Farm Labor Report", styles["Title"]))
     story.append(Paragraph(f"Owner: {user.get('name','')} · {user.get('email','')}", styles["Normal"]))
     story.append(Paragraph(f"Generated: {now_utc().strftime('%Y-%m-%d %H:%M UTC')}", styles["Normal"]))
+    if start and end:
+        story.append(Paragraph(f"Period: {start} to {end}", styles["Normal"]))
     story.append(Spacer(1, 12))
 
     for w in workers:
-        led = await compute_worker_ledger(user["user_id"], w)
+        led = await compute_worker_ledger(user["user_id"], w, start=start, end=end)
         story.append(Paragraph(f"<b>{w['name']}</b> ({w.get('skill','')}) — Rate: Rs {w['daily_rate']}", styles["Heading3"]))
         summary = [
             ["Days Worked", "Total Earned", "Advance", "Returned", "Settled", "Pending"],
@@ -106,7 +113,12 @@ async def report_pdf(user: dict = Depends(get_current_user), worker_id: Optional
         headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 @router.get("/reports/excel")
-async def report_excel(user: dict = Depends(get_current_user), worker_id: Optional[str] = None):
+async def report_excel(
+    user: dict = Depends(get_current_user),
+    worker_id: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+):
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
@@ -116,7 +128,7 @@ async def report_excel(user: dict = Depends(get_current_user), worker_id: Option
         workers_query["id"] = worker_id
     workers = await db.workers.find(workers_query, {"_id": 0}).to_list(1000)
     for w in workers:
-        led = await compute_worker_ledger(user["user_id"], w)
+        led = await compute_worker_ledger(user["user_id"], w, start=start, end=end)
         ws.append([w["name"], w.get("skill",""), w["daily_rate"],
                    led["days_worked"], led["total_earned"],
                    led["total_advance"], led["total_returned"],
@@ -130,23 +142,23 @@ async def report_excel(user: dict = Depends(get_current_user), worker_id: Option
         headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 @router.get("/reports/contractor/{cid}/pdf")
-async def contractor_pdf(cid: str, user: dict = Depends(get_current_user)):
+async def contractor_pdf(
+    cid: str,
+    user: dict = Depends(get_current_user),
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+):
     contractor = await db.contractors.find_one({"id": cid, "user_id": user["user_id"]}, {"_id": 0})
     if not contractor:
         raise HTTPException(404, "Contractor not found")
-    visits = await db.contractor_visits.find(
-        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
-    ).sort("date", 1).to_list(2000)
-    payments = await db.contractor_payments.find(
-        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
-    ).sort("date", 1).to_list(2000)
-    returns = await db.contractor_returns.find(
-        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
-    ).sort("date", 1).to_list(2000)
-    total_workers = sum(v.get("workers_count", 0) for v in visits)
-    total_paid = sum(p["amount"] for p in payments)
-    total_returned = sum(r["amount"] for r in returns)
-    net_paid = total_paid - total_returned
+    led = await compute_contractor_ledger(user["user_id"], contractor, start=start, end=end)
+    visits = led["visits"]
+    payments = led["payments"]
+    returns = led["returns"]
+    total_workers = led["total_workers_brought"]
+    total_paid = led["total_paid"]
+    total_returned = led["total_returned"]
+    net_paid = led["net_paid"]
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, title=f"Contractor · {contractor['name']}")
@@ -155,8 +167,10 @@ async def contractor_pdf(cid: str, user: dict = Depends(get_current_user)):
         Paragraph(f"Contractor Report — {contractor['name']}", styles["Title"]),
         Paragraph(f"Mobile: {contractor.get('mobile','—')}", styles["Normal"]),
         Paragraph(f"Generated: {now_utc().strftime('%Y-%m-%d %H:%M UTC')}", styles["Normal"]),
-        Spacer(1, 12),
     ]
+    if start and end:
+        story.append(Paragraph(f"Period: {start} to {end}", styles["Normal"]))
+    story.append(Spacer(1, 12))
     summary = [
         ["Visits", "Total Workers", "Total Paid", "Returned", "Net Paid"],
         [len(visits), total_workers, f"Rs {total_paid}", f"Rs {total_returned}", f"Rs {round(net_paid,2)}"],
@@ -208,19 +222,19 @@ async def contractor_pdf(cid: str, user: dict = Depends(get_current_user)):
         headers={"Content-Disposition": f"attachment; filename=contractor_{cid[:8]}.pdf"})
 
 @router.get("/reports/contractor/{cid}/excel")
-async def contractor_excel(cid: str, user: dict = Depends(get_current_user)):
+async def contractor_excel(
+    cid: str,
+    user: dict = Depends(get_current_user),
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+):
     contractor = await db.contractors.find_one({"id": cid, "user_id": user["user_id"]}, {"_id": 0})
     if not contractor:
         raise HTTPException(404, "Contractor not found")
-    visits = await db.contractor_visits.find(
-        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
-    ).sort("date", 1).to_list(2000)
-    payments = await db.contractor_payments.find(
-        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
-    ).sort("date", 1).to_list(2000)
-    returns = await db.contractor_returns.find(
-        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
-    ).sort("date", 1).to_list(2000)
+    led = await compute_contractor_ledger(user["user_id"], contractor, start=start, end=end)
+    visits = led["visits"]
+    payments = led["payments"]
+    returns = led["returns"]
 
     wb = Workbook()
     s1 = wb.active

@@ -43,6 +43,7 @@ from pydantic import BaseModel
 from core.database import db
 from security.authentication import get_current_user
 from security.authorization import require_write_access
+from services.ledger import compute_contractor_ledger
 
 
 router = APIRouter()
@@ -229,32 +230,13 @@ async def del_creturn(rid: str, user: dict = Depends(require_write_access)):
 # ---------------- Ledger ----------------
 
 @router.get("/contractors/{cid}/ledger")
-async def contractor_ledger(cid: str, user: dict = Depends(get_current_user)):
+async def contractor_ledger(
+    cid: str,
+    user: dict = Depends(get_current_user),
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+):
     contractor = await db.contractors.find_one({"id": cid, "user_id": user["user_id"]}, {"_id": 0})
     if not contractor:
         raise HTTPException(404, "Contractor not found")
-    visits = await db.contractor_visits.find(
-        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
-    ).sort("date", -1).to_list(2000)
-    payments = await db.contractor_payments.find(
-        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
-    ).sort("date", -1).to_list(2000)
-    returns = await db.contractor_returns.find(
-        {"contractor_id": cid, "user_id": user["user_id"]}, {"_id": 0}
-    ).sort("date", -1).to_list(2000)
-    total_visits = len(visits)
-    total_workers_brought = sum(v.get("workers_count", 0) for v in visits)
-    total_paid = sum(p["amount"] for p in payments)
-    total_returned = sum(r["amount"] for r in returns)
-    net_paid = total_paid - total_returned
-    return {
-        "contractor": contractor,
-        "total_visits": total_visits,
-        "total_workers_brought": total_workers_brought,
-        "total_paid": round(total_paid, 2),
-        "total_returned": round(total_returned, 2),
-        "net_paid": round(net_paid, 2),
-        "visits": visits,
-        "payments": payments,
-        "returns": returns,
-    }
+    return await compute_contractor_ledger(user["user_id"], contractor, start=start, end=end)

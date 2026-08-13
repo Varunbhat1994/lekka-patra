@@ -44,7 +44,9 @@ class SettlementIn(BaseModel):
     worker_id: Optional[str] = None
     contractor_id: Optional[str] = None
     up_to_date: str
-    amount: Optional[float] = None  # optional override; defaults to current payable
+    amount: Optional[float] = None  # legacy — kept for backwards compat
+    mode: Optional[str] = None  # "adjust_advance" | "actual_paid" (worker only)
+    actual_paid: Optional[float] = None  # cash paid today (mode=actual_paid)
     note: Optional[str] = ""
 
 
@@ -52,13 +54,18 @@ class SettlementIn(BaseModel):
 async def settle(s: SettlementIn, user: dict = Depends(require_write_access)):
     """Close out the current work period for a worker OR a contractor.
 
-    For workers: the settlement records the current wage payable
-    (`ledger.pending`, which equals wages earned since the last
-    settlement). The pending advance is a separate running balance and
-    is DELIBERATELY NOT touched by this endpoint.
+    Worker modes (payload.mode):
+      - "adjust_advance" (Scenario A): no cash exchanged. The current
+        earned amount is deducted from the outstanding advance by
+        auto-recording a RETURN equal to earned. If existing advance >
+        earned, the result is "worker owes you (existing_advance - earned)".
+      - "actual_paid"    (Scenario B): payload.actual_paid is the cash
+        physically handed over today. If actual_paid > earned the excess
+        is auto-recorded as a NEW ADVANCE dated up_to_date.
+      - (mode omitted): behaves like the legacy call — settlement records
+        `amount` (defaulting to earned). No auto-return, no auto-advance.
 
-    For contractors: same shape as before — records `net_paid` and
-    writes a compensating return so `net_paid` returns to zero.
+    Contractor branch is unchanged (no mode logic).
     """
     if not s.worker_id and not s.contractor_id:
         raise HTTPException(400, "worker_id or contractor_id required")
@@ -68,36 +75,104 @@ async def settle(s: SettlementIn, user: dict = Depends(require_write_access)):
         if not worker:
             raise HTTPException(404, "Worker not found")
         led = await compute_worker_ledger(user["user_id"], worker)
-        # Default: current wage payable. Caller may override (e.g. partial
-        # settlement or manual adjustment); we still clamp to >= 0.
-        default_amount = max(0.0, led["pending"])
-        amount = default_amount if s.amount is None else max(0.0, float(s.amount))
+        earned = max(0.0, led["pending"])  # pending == period earned since last cutoff
+        existing_net_advance = round(led["net_advance"], 2)
+
+        mode = (s.mode or "").strip().lower() or None
+        auto_return_id: Optional[str] = None
+        auto_advance_id: Optional[str] = None
+        settlement_amount = earned
+        worker_owes_user = 0.0
+        new_advance = 0.0
+
+        if mode == "adjust_advance":
+            # No cash. Deduct earned from existing advance by recording a
+            # return of `earned` on up_to_date.
+            settlement_amount = earned
+            if earned > 0:
+                auto_return_id = str(uuid.uuid4())
+                await db.advance_returns.insert_one({
+                    "id": auto_return_id,
+                    "user_id": user["user_id"],
+                    "worker_id": s.worker_id,
+                    "date": s.up_to_date,
+                    "amount": round(earned, 2),
+                    "method": "adjust",
+                    "notes": "Auto-adjust from advance on Mark Settled",
+                    "settlement_id": None,  # set below after settlement insert
+                    "created_at": _now_utc().isoformat(),
+                })
+            new_net_advance = existing_net_advance - earned
+            worker_owes_user = max(0.0, new_net_advance)
+
+        elif mode == "actual_paid":
+            actual = 0.0 if s.actual_paid is None else max(0.0, float(s.actual_paid))
+            if actual < earned:
+                raise HTTPException(
+                    400,
+                    "actual_paid is less than earned. Use adjust_advance or pay at least the earned amount.",
+                )
+            settlement_amount = earned
+            extra = round(actual - earned, 2)
+            if extra > 0:
+                auto_advance_id = str(uuid.uuid4())
+                await db.advances.insert_one({
+                    "id": auto_advance_id,
+                    "user_id": user["user_id"],
+                    "worker_id": s.worker_id,
+                    "date": s.up_to_date,
+                    "amount": extra,
+                    "method": "cash",
+                    "notes": "Auto-created from Mark Settled (overpayment)",
+                    "settlement_id": None,
+                    "created_at": _now_utc().isoformat(),
+                })
+                new_advance = extra
+
+        else:
+            # Legacy path — caller supplied amount or default to earned.
+            default_amount = earned
+            settlement_amount = default_amount if s.amount is None else max(0.0, float(s.amount))
+
         doc = {
             "id": str(uuid.uuid4()),
             "user_id": user["user_id"],
             "worker_id": s.worker_id,
             "up_to_date": s.up_to_date,
-            "amount": round(amount, 2),
-            # Historical snapshot of the current-period wage at settle time.
-            # Useful for audits / undo — never overwritten.
+            "amount": round(settlement_amount, 2),
+            "mode": mode,
+            "actual_paid": None if s.actual_paid is None else round(float(s.actual_paid), 2),
             "period_earned": round(led["total_earned"], 2),
             "period_days_worked": led["days_worked"],
-            # Snapshot of the outstanding advance at settle time (recorded
-            # for the record — this value is NOT subtracted from the
-            # settlement).
-            "advance_snapshot": round(led["net_advance"], 2),
+            "advance_snapshot": existing_net_advance,
+            "auto_return_id": auto_return_id,
+            "auto_advance_id": auto_advance_id,
             "note": s.note or "",
             "created_at": _now_utc().isoformat(),
         }
         await db.settlements.insert_one(doc)
+
+        # Link the auto-generated rows back to the settlement id for undo.
+        if auto_return_id:
+            await db.advance_returns.update_one(
+                {"id": auto_return_id}, {"$set": {"settlement_id": doc["id"]}}
+            )
+        if auto_advance_id:
+            await db.advances.update_one(
+                {"id": auto_advance_id}, {"$set": {"settlement_id": doc["id"]}}
+            )
+
         doc.pop("_id", None)
         return {
             "ok": True,
             "id": doc["id"],
             "amount": doc["amount"],
             "kind": "worker",
+            "mode": mode,
             "period_earned": doc["period_earned"],
-            "advance_snapshot": doc["advance_snapshot"],
+            "advance_snapshot": existing_net_advance,
+            "worker_owes_user": round(worker_owes_user, 2),
+            "new_advance_created": round(new_advance, 2),
         }
 
     # Contractor settle: zero out net_paid by recording a return equal to net_paid.
@@ -157,9 +232,11 @@ async def list_settlements(
 
 @router.delete("/settlements/{sid}")
 async def del_settlement(sid: str, user: dict = Depends(require_write_access)):
-    """Reverse a settlement (in case cash was never actually paid)."""
-    # If it was a contractor settlement, also remove its auto-return
+    """Reverse a settlement and any auto-created rows tied to it
+    (contractor return, worker auto-return, or worker auto-advance)."""
     await db.contractor_returns.delete_many({"user_id": user["user_id"], "settlement_id": sid})
+    await db.advance_returns.delete_many({"user_id": user["user_id"], "settlement_id": sid})
+    await db.advances.delete_many({"user_id": user["user_id"], "settlement_id": sid})
     res = await db.settlements.delete_one({"id": sid, "user_id": user["user_id"]})
     if res.deleted_count == 0:
         raise HTTPException(404, "Settlement not found")
