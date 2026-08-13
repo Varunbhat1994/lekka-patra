@@ -94,11 +94,29 @@ async def compute_worker_ledger(
         settlements_out = all_settlements
     net_advance = total_advance - total_returned
     pending = total_earned
-    # Single source of truth for the "final balance" the UI shows.
-    # Positive  → employer owes worker  ("You owe worker ₹X")
-    # Negative  → worker owes employer  ("Worker owes you ₹X")
-    # Zero      → balanced
-    final_balance = total_earned - net_advance - total_settled
+    # Period-aware final balance — SINGLE SOURCE OF TRUTH.
+    #
+    # Positive → employer owes worker  ("You owe worker ₹X")
+    # Negative → worker owes employer  ("Worker owes you ₹X")
+    # Zero     → balanced
+    #
+    # CURRENT-CYCLE mode (no start/end): `total_earned` is already
+    # cutoff-filtered (resets after each Mark Settled), while
+    # `net_advance` intentionally carries forward. `total_settled`
+    # is cumulative (all-time) and must NOT be subtracted here — the
+    # earnings it closed out are already excluded from `total_earned`
+    # by the cutoff, so subtracting the settlement again would
+    # double-count the closed period and produce a bogus deficit.
+    #
+    # HISTORY mode (start & end supplied): earnings, advances,
+    # returns AND settlements are all windowed by the same date
+    # range, so the classical accounting formula
+    #     earned - net_advance - settled_paid_in_window
+    # accurately reflects the net activity of that window.
+    if start and end:
+        final_balance = total_earned - net_advance - total_settled
+    else:
+        final_balance = total_earned - net_advance
     return {
         "worker": worker,
         "days_worked": round(days_worked, 2),

@@ -51,10 +51,11 @@ async def report_pdf(
         led = await compute_worker_ledger(user["user_id"], w, start=start, end=end)
         story.append(Paragraph(f"<b>{w['name']}</b> ({w.get('skill','')}) — Rate: Rs {w['daily_rate']}", styles["Heading3"]))
         summary = [
-            ["Days Worked", "Total Earned", "Advance", "Returned", "Settled", "Pending"],
+            ["Days Worked", "Total Earned", "Advance", "Returned", "Settled", "Earned (period)", "Balance"],
             [led["days_worked"], f"Rs {led['total_earned']}",
              f"Rs {led['total_advance']}", f"Rs {led['total_returned']}",
-             f"Rs {led.get('total_settled', 0)}", f"Rs {led['pending']}"],
+             f"Rs {led.get('total_settled', 0)}", f"Rs {led['pending']}",
+             f"Rs {led.get('final_balance', 0)}"],
         ]
         t = Table(summary, hAlign="LEFT")
         t.setStyle(TableStyle([
@@ -122,7 +123,7 @@ async def report_excel(
     wb = Workbook()
     ws = wb.active
     ws.title = "Summary"
-    ws.append(["Worker", "Skill", "Daily Rate", "Days Worked", "Total Earned", "Advance", "Returned", "Settled", "Pending"])
+    ws.append(["Worker", "Skill", "Daily Rate", "Days Worked", "Total Earned", "Advance", "Returned", "Settled", "Earned (period)", "Balance"])
     workers_query = {"user_id": user["user_id"]}
     if worker_id:
         workers_query["id"] = worker_id
@@ -132,7 +133,8 @@ async def report_excel(
         ws.append([w["name"], w.get("skill",""), w["daily_rate"],
                    led["days_worked"], led["total_earned"],
                    led["total_advance"], led["total_returned"],
-                   led.get("total_settled", 0), led["pending"]])
+                   led.get("total_settled", 0), led["pending"],
+                   led.get("final_balance", 0)])
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -274,21 +276,34 @@ async def whatsapp_text(worker_id: str, user: dict = Depends(get_current_user), 
     if not worker:
         raise HTTPException(404, "Worker not found")
     led = await compute_worker_ledger(user["user_id"], worker)
+    fb = float(led.get("final_balance", 0) or 0)
     if lang == "kn":
+        if fb > 0:
+            bal_line = f"ಬಾಕಿ: ನೀವು ಕಾರ್ಮಿಕರಿಗೆ ರೂ {round(fb, 2)} ಸಾಲ"
+        elif fb < 0:
+            bal_line = f"ಬಾಕಿ: ಕಾರ್ಮಿಕ ನಿಮಗೆ ರೂ {round(-fb, 2)} ಸಾಲ"
+        else:
+            bal_line = "ಬಾಕಿ: ಸಮತೋಲನ"
         msg = (
             f"ನಮಸ್ಕಾರ {worker['name']},\n"
             f"ಒಟ್ಟು ಕೆಲಸದ ದಿನಗಳು: {led['days_worked']}\n"
             f"ಒಟ್ಟು ಸಂಬಳ: ರೂ {led['total_earned']}\n"
             f"ಮುಂಗಡ ಪಾವತಿ: ರೂ {led['total_advance']}\n"
-            f"ಬಾಕಿ: ರೂ {led['pending']}"
+            f"{bal_line}"
         )
     else:
+        if fb > 0:
+            bal_line = f"Balance: You owe worker Rs {round(fb, 2)}"
+        elif fb < 0:
+            bal_line = f"Balance: Worker owes you Rs {round(-fb, 2)}"
+        else:
+            bal_line = "Balance: Balanced"
         msg = (
             f"Hi {worker['name']},\n"
             f"Days Worked: {led['days_worked']}\n"
             f"Total Earned: Rs {led['total_earned']}\n"
             f"Advance Paid: Rs {led['total_advance']}\n"
-            f"Pending: Rs {led['pending']}"
+            f"{bal_line}"
         )
     return {"message": msg, "phone": worker.get("mobile", "")}
 
