@@ -153,7 +153,27 @@ async def compute_contractor_ledger(
     optional date-range filter for year/month history views. Ownership is
     the caller's responsibility (pass a contractor doc already scoped by
     user_id). This is the single source of truth used by both the UI
-    ledger route and the PDF/Excel export."""
+    ledger route and the PDF/Excel export.
+
+    Contractor semantics (deliberately NOT a copy of the worker formula):
+
+        net_paid       = total_paid - total_returned    (unchanged)
+        total_settled  = Σ settlement.amount for this contractor
+                         (kind='contractor_settle' only — never mixes
+                         with worker settlements). Informational.
+        final_balance  = -net_paid   (both current and history)
+                         > 0 → "You owe contractor"
+                         < 0 → "Contractor owes you"
+                         = 0 → "Balanced"
+
+    `final_balance` deliberately does NOT subtract `total_settled`
+    because contractor settlements already write a matching
+    `contractor_returns` row, so their cash effect is already in
+    `total_returned`. Subtracting settled again would double-count.
+    `total_settled` is surfaced only so the UI can distinguish
+    "return via settlement" from "voluntary return" in historical
+    views.
+    """
     cid = contractor["id"]
     base = {"user_id": user_id, "contractor_id": cid}
     dated = dict(base)
@@ -165,6 +185,21 @@ async def compute_contractor_ledger(
     total_paid = sum(p["amount"] for p in payments)
     total_returned = sum(r["amount"] for r in returns)
     net_paid = round(total_paid - total_returned, 2)
+
+    # Contractor-scoped settlements only — kind='contractor_settle'.
+    # Never counts worker settlements.
+    settle_q = {
+        "user_id": user_id,
+        "contractor_id": cid,
+        "kind": "contractor_settle",
+    }
+    if start and end:
+        settle_q["up_to_date"] = {"$gte": start, "$lte": end}
+    settlements = await db.settlements.find(settle_q, {"_id": 0}).sort("up_to_date", -1).to_list(1000)
+    total_settled = round(sum(float(s.get("amount", 0) or 0) for s in settlements), 2)
+
+    final_balance = round(-net_paid, 2)
+
     return {
         "contractor": contractor,
         "total_visits": len(visits),
@@ -172,9 +207,12 @@ async def compute_contractor_ledger(
         "total_paid": round(total_paid, 2),
         "total_returned": round(total_returned, 2),
         "net_paid": net_paid,
+        "total_settled": total_settled,
+        "final_balance": final_balance,
         "visits": visits,
         "payments": payments,
         "returns": returns,
+        "settlements": settlements,
         "range": {"start": start, "end": end} if (start and end) else None,
     }
 

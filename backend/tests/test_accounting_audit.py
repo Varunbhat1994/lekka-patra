@@ -976,6 +976,200 @@ async def test_39_e2e_http_wage_snapshot():
         await db.user_sessions.delete_many({"session_token": token})
 
 
+# ==================================================================
+# CONTRACTOR LEDGER (audited additive fix)
+# ==================================================================
+
+from services.ledger import compute_contractor_ledger  # noqa: E402
+
+
+async def _mk_contractor(uid: str, name: str = "C") -> dict:
+    c = {"id": str(uuid.uuid4()), "user_id": uid, "name": name, "mobile": "", "notes": ""}
+    await db.contractors.insert_one(dict(c))
+    return c
+
+
+async def _cpay(uid, cid, amt, date="2026-01-05"):
+    await db.contractor_payments.insert_one({
+        "id": str(uuid.uuid4()), "user_id": uid, "contractor_id": cid,
+        "date": date, "amount": float(amt), "method": "cash",
+    })
+
+
+async def _cret(uid, cid, amt, date="2026-01-20", method="cash", settlement_id=None):
+    doc = {
+        "id": str(uuid.uuid4()), "user_id": uid, "contractor_id": cid,
+        "date": date, "amount": float(amt), "method": method,
+    }
+    if settlement_id:
+        doc["settlement_id"] = settlement_id
+    await db.contractor_returns.insert_one(doc)
+
+
+async def _csettle(uid, cid, up_to_date, amount):
+    """Simulate what routes/settlements.py does for contractor Mark Settled."""
+    sid = str(uuid.uuid4())
+    await db.settlements.insert_one({
+        "id": sid, "user_id": uid, "contractor_id": cid,
+        "up_to_date": up_to_date, "amount": float(amount),
+        "kind": "contractor_settle",
+    })
+    if amount > 0:
+        await _cret(uid, cid, amount, date=up_to_date, method="settlement", settlement_id=sid)
+    return sid
+
+
+async def _cleanup_contractor(uid: str):
+    for coll in ("contractors", "contractor_payments", "contractor_returns", "settlements", "users", "user_sessions"):
+        await db[coll].delete_many({"user_id": uid})
+
+
+async def test_40_contractor_lifetime_net_paid():
+    """Payment 5000, return 2000 → net_paid=3000, contractor owes you 3000."""
+    uid = f"t40_{uuid.uuid4()}"
+    try:
+        c = await _mk_contractor(uid)
+        await _cpay(uid, c["id"], 5000)
+        await _cret(uid, c["id"], 2000)
+        led = await compute_contractor_ledger(uid, c)
+        assert led["total_paid"] == 5000.0, led
+        assert led["total_returned"] == 2000.0, led
+        assert led["net_paid"] == 3000.0, led
+        assert led["total_settled"] == 0.0, led
+        assert led["final_balance"] == -3000.0, led
+        print("40 contractor lifetime net_paid ✓  Contractor owes you ₹3,000")
+    finally:
+        await _cleanup_contractor(uid)
+
+
+async def test_41_contractor_settle_zeros_balance():
+    """Payment 5000, Mark Settled → current balance 0, total_settled 5000."""
+    uid = f"t41_{uuid.uuid4()}"
+    try:
+        c = await _mk_contractor(uid)
+        await _cpay(uid, c["id"], 5000)
+        await _csettle(uid, c["id"], "2026-02-01", 5000)
+        led = await compute_contractor_ledger(uid, c)
+        assert led["total_paid"] == 5000.0, led
+        assert led["total_returned"] == 5000.0, led  # includes auto-return
+        assert led["net_paid"] == 0.0, led
+        assert led["total_settled"] == 5000.0, led
+        assert led["final_balance"] == 0.0, led
+        print("41 contractor Mark Settled ✓  Current balance = 0, settled = ₹5,000")
+    finally:
+        await _cleanup_contractor(uid)
+
+
+async def test_42_contractor_full_year_history_shows_settle():
+    """Full-year window containing a settle must surface total_settled."""
+    uid = f"t42_{uuid.uuid4()}"
+    try:
+        c = await _mk_contractor(uid)
+        await _cpay(uid, c["id"], 5000, date="2026-01-10")
+        await _csettle(uid, c["id"], "2026-01-31", 5000)
+        led = await compute_contractor_ledger(uid, c, start="2026-01-01", end="2026-12-31")
+        assert led["total_paid"] == 5000.0, led
+        assert led["total_returned"] == 5000.0, led
+        assert led["total_settled"] == 5000.0, led
+        assert led["final_balance"] == 0.0, led
+        assert len(led["settlements"]) == 1, led["settlements"]
+        # January window (before the Feb settle date) — payment only, no settle in window
+        led_jan = await compute_contractor_ledger(uid, c, start="2026-01-01", end="2026-01-31")
+        assert led_jan["total_settled"] == 5000.0, led_jan  # up_to_date=2026-01-31 is in window
+        assert len(led_jan["settlements"]) == 1
+        # December window — nothing there
+        led_dec = await compute_contractor_ledger(uid, c, start="2026-12-01", end="2026-12-31")
+        assert led_dec["total_settled"] == 0.0, led_dec
+        assert len(led_dec["settlements"]) == 0
+        print("42 contractor year history ✓  Settlement visible via total_settled")
+    finally:
+        await _cleanup_contractor(uid)
+
+
+async def test_43_contractor_partial_return_no_settle():
+    """Payment 5000, voluntary return 2000, no settle → balance reflects outstanding."""
+    uid = f"t43_{uuid.uuid4()}"
+    try:
+        c = await _mk_contractor(uid)
+        await _cpay(uid, c["id"], 5000, date="2026-01-05")
+        await _cret(uid, c["id"], 2000, date="2026-01-15")
+        led = await compute_contractor_ledger(uid, c)
+        assert led["net_paid"] == 3000.0
+        assert led["total_settled"] == 0.0
+        assert led["final_balance"] == -3000.0  # contractor still owes 3000
+        print("43 contractor partial return ✓  Contractor owes ₹3,000, no settlement rows")
+    finally:
+        await _cleanup_contractor(uid)
+
+
+async def test_44_contractor_user_isolation():
+    """User A contractor operations must not affect User B."""
+    uidA = f"t44a_{uuid.uuid4()}"
+    uidB = f"t44b_{uuid.uuid4()}"
+    try:
+        cA = await _mk_contractor(uidA, "A")
+        cB = await _mk_contractor(uidB, "B")
+        await _cpay(uidA, cA["id"], 5000)
+        await _cpay(uidB, cB["id"], 8000)
+        await _cret(uidB, cB["id"], 2000)
+        ledA = await compute_contractor_ledger(uidA, cA)
+        ledB = await compute_contractor_ledger(uidB, cB)
+        assert ledA["net_paid"] == 5000.0 and ledA["final_balance"] == -5000.0, ledA
+        assert ledB["net_paid"] == 6000.0 and ledB["final_balance"] == -6000.0, ledB
+        # Cross-computation must yield zeros
+        ledA_of_B = await compute_contractor_ledger(uidA, cB)
+        assert ledA_of_B["total_paid"] == 0.0
+        print("44 contractor user isolation ✓  A and B totals never cross")
+    finally:
+        await _cleanup_contractor(uidA)
+        await _cleanup_contractor(uidB)
+
+
+async def test_45_contractor_settle_never_leaks_into_worker_totals():
+    """A contractor_settle row must NOT count toward a worker's total_settled."""
+    uid = f"t45_{uuid.uuid4()}"
+    try:
+        # Same user has 1 worker and 1 contractor
+        w = await _mk_worker(uid, wage=500)
+        c = await _mk_contractor(uid)
+        await _days(uid, w["id"], 4, start_day=1, month="01", rate=500)
+        await _cpay(uid, c["id"], 5000)
+        await _csettle(uid, c["id"], "2026-02-01", 5000)
+        # Worker ledger must show total_settled = 0 (no worker settle happened)
+        led_w = await compute_worker_ledger(uid, w)
+        assert led_w["total_settled"] == 0.0, led_w
+        # History mode too
+        led_w_year = await compute_worker_ledger(uid, w, start="2026-01-01", end="2026-12-31")
+        assert led_w_year["total_settled"] == 0.0, led_w_year
+        # Contractor sees settlement
+        led_c = await compute_contractor_ledger(uid, c)
+        assert led_c["total_settled"] == 5000.0
+        print("45 no worker/contractor settle leak ✓  Kind filter isolates settlements")
+    finally:
+        # Custom cleanup: remove worker rows too
+        for coll in ("workers", "attendance", "contractors", "contractor_payments",
+                     "contractor_returns", "settlements"):
+            await db[coll].delete_many({"user_id": uid})
+
+
+async def test_46_dashboard_contractor_pending_direction():
+    """Dashboard pending_list for a contractor with net_paid>0 must show
+       a negative pending value (contractor owes you)."""
+    from routes.dashboard import dashboard as dashboard_route
+    uid = f"t46_{uuid.uuid4()}"
+    try:
+        c = await _mk_contractor(uid)
+        await _cpay(uid, c["id"], 4000)
+        fake_user = {"user_id": uid, "name": "T", "email": ""}
+        result = await dashboard_route(user=fake_user)
+        found = [it for it in result["pending_list"] if it["name"] == c["name"] and it["type"] == "contractor"]
+        assert len(found) == 1, result["pending_list"]
+        assert found[0]["pending"] == -4000.0, found  # negative = worker/contractor owes you
+        print("46 dashboard contractor direction ✓  pending=-4000 (contractor owes you)")
+    finally:
+        await _cleanup_contractor(uid)
+
+
 TESTS = [
     test_01_earned_only,
     test_02_advance_only,
@@ -1017,6 +1211,13 @@ TESTS = [
     test_37_settlement_across_wage_change,
     test_38_user_isolation_on_wage_change,
     test_39_e2e_http_wage_snapshot,
+    test_40_contractor_lifetime_net_paid,
+    test_41_contractor_settle_zeros_balance,
+    test_42_contractor_full_year_history_shows_settle,
+    test_43_contractor_partial_return_no_settle,
+    test_44_contractor_user_isolation,
+    test_45_contractor_settle_never_leaks_into_worker_totals,
+    test_46_dashboard_contractor_pending_direction,
 ]
 
 

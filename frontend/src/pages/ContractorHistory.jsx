@@ -84,12 +84,40 @@ export default function ContractorHistory() {
           <Kpi label={lang==="kn"?"ಕಾರ್ಮಿಕರು":"Workers Brought"} value={led?.total_workers_brought ?? 0} />
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ಪಾವತಿ":"Total Paid"} value={`₹${led?.total_paid ?? 0}`} tone="primary" />
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ವಾಪಸ್":"Total Returned"} value={`₹${led?.total_returned ?? 0}`} />
+          <Kpi label={lang==="kn"?"ಒಟ್ಟು ಇತ್ಯರ್ಥ":"Total Settled"} value={`₹${led?.total_settled ?? 0}`} tone="accent" />
+          <Kpi label={lang==="kn"?"ನಿವ್ವಳ ಪಾವತಿ":"Net Paid"} value={`₹${led?.net_paid ?? 0}`} />
         </div>
-        <div className="rounded-xl border border-border bg-card p-3" data-testid="net-paid-card">
-          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-            {lang==="kn"?"ನಿವ್ವಳ ಪಾವತಿ":"Net Paid"}
+        <div className="rounded-xl border border-border bg-card p-3" data-testid="contractor-balance-card">
+          {(() => {
+            const fb = Number(led?.final_balance ?? 0);
+            if (fb > 0) {
+              return (<>
+                <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  {lang==="kn" ? "ನೀವು ಗುತ್ತಿಗೆದಾರರಿಗೆ ಸಾಲ" : "You owe contractor"}
+                </div>
+                <div className="text-xl font-bold mt-1 text-[hsl(var(--primary))]">₹{fb}</div>
+              </>);
+            }
+            if (fb < 0) {
+              return (<>
+                <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  {lang==="kn" ? "ಗುತ್ತಿಗೆದಾರ ನಿಮಗೆ ಸಾಲ" : "Contractor owes you"}
+                </div>
+                <div className="text-xl font-bold mt-1 text-red-600">₹{-fb}</div>
+              </>);
+            }
+            return (<>
+              <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                {lang==="kn" ? "ಸಮತೋಲನ" : "Balanced"}
+              </div>
+              <div className="text-xl font-bold mt-1 text-muted-foreground">₹0</div>
+            </>);
+          })()}
+          <div className="text-[10px] text-muted-foreground mt-2 leading-relaxed">
+            {lang==="kn"
+              ? "ನಿವ್ವಳ ಪಾವತಿ = ಪಾವತಿಗಳು − ವಾಪಸಾತಿಗಳು. ಒಟ್ಟು ಇತ್ಯರ್ಥ = ಇತ್ಯರ್ಥದ ಮೂಲಕ ಬಂದ ವಾಪಸಾತಿ."
+              : "Net Paid = Payments − Returns.  Total Settled = amount settled via contractor settlements (included in returns above)."}
           </div>
-          <div className={`text-xl font-bold mt-1 ${(led?.net_paid ?? 0)>0 ? "text-[hsl(var(--accent))]" : ""}`}>₹{led?.net_paid ?? 0}</div>
         </div>
 
         <div className="rounded-xl border border-border bg-card p-3 flex gap-2 items-center">

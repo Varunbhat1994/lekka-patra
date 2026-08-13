@@ -223,11 +223,13 @@ function ContractorDetail({ id, onClose }) {
         contractor_id: id,
         up_to_date: today(),
       });
-      // Optimistically zero net_paid
+      // Optimistically zero net_paid + final_balance; bump total_settled
       setData(prev => prev ? {
         ...prev,
         net_paid: 0,
+        final_balance: 0,
         total_returned: (prev.total_returned || 0) + (prev.net_paid || 0),
+        total_settled: (prev.total_settled || 0) + (prev.net_paid || 0),
       } : prev);
       toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥ ದಾಖಲಿಸಲಾಗಿದೆ" : "Settled");
       load();
@@ -272,6 +274,28 @@ function ContractorDetail({ id, onClose }) {
               {lang === "kn" ? "ಒಟ್ಟು ಪಾವತಿ" : "Total paid"}: ₹{data.total_paid}
             </div>
           )}
+          {data && (() => {
+            const fb = Number(data.final_balance ?? 0);
+            if (fb > 0) {
+              return (
+                <div className="text-xs font-semibold text-[hsl(var(--primary))]" data-testid="contractor-balance-msg">
+                  {lang === "kn" ? `ನೀವು ಗುತ್ತಿಗೆದಾರರಿಗೆ ₹${fb} ಸಾಲ` : `You owe contractor ₹${fb}`}
+                </div>
+              );
+            }
+            if (fb < 0) {
+              return (
+                <div className="text-xs font-semibold text-red-600" data-testid="contractor-balance-msg">
+                  {lang === "kn" ? `ಗುತ್ತಿಗೆದಾರ ನಿಮಗೆ ₹${-fb} ಸಾಲ` : `Contractor owes you ₹${-fb}`}
+                </div>
+              );
+            }
+            return (
+              <div className="text-xs text-muted-foreground" data-testid="contractor-balance-msg">
+                {lang === "kn" ? "ಸಮತೋಲನ" : "Balanced"}
+              </div>
+            );
+          })()}
 
           <div className="flex flex-wrap gap-2">
             <Button data-testid="contractor-pdf-btn"

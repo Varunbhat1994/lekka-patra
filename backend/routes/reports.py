@@ -161,6 +161,8 @@ async def contractor_pdf(
     total_paid = led["total_paid"]
     total_returned = led["total_returned"]
     net_paid = led["net_paid"]
+    total_settled = led.get("total_settled", 0)
+    final_balance = float(led.get("final_balance", 0) or 0)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, title=f"Contractor · {contractor['name']}")
@@ -172,10 +174,22 @@ async def contractor_pdf(
     ]
     if start and end:
         story.append(Paragraph(f"Period: {start} to {end}", styles["Normal"]))
+    # Direction sentence
+    if final_balance > 0:
+        story.append(Paragraph(f"<b>You owe contractor Rs {round(final_balance, 2)}</b>", styles["Normal"]))
+    elif final_balance < 0:
+        story.append(Paragraph(f"<b>Contractor owes you Rs {round(-final_balance, 2)}</b>", styles["Normal"]))
+    else:
+        story.append(Paragraph("<b>Balanced</b>", styles["Normal"]))
     story.append(Spacer(1, 12))
     summary = [
-        ["Visits", "Total Workers", "Total Paid", "Returned", "Net Paid"],
-        [len(visits), total_workers, f"Rs {total_paid}", f"Rs {total_returned}", f"Rs {round(net_paid,2)}"],
+        ["Visits", "Total Workers", "Total Paid", "Returned", "Settled", "Net Paid", "Balance"],
+        [
+            len(visits), total_workers,
+            f"Rs {total_paid}", f"Rs {total_returned}",
+            f"Rs {round(total_settled, 2)}", f"Rs {round(net_paid, 2)}",
+            f"Rs {round(final_balance, 2)}",
+        ],
     ]
     t = Table(summary, hAlign="LEFT")
     t.setStyle(TableStyle([
@@ -247,6 +261,16 @@ async def contractor_excel(
     s1.append(["Total Workers Brought", sum(v.get("workers_count", 0) for v in visits)])
     s1.append(["Total Paid", sum(p["amount"] for p in payments)])
     s1.append(["Total Returned", sum(r["amount"] for r in returns)])
+    s1.append(["Total Settled", led.get("total_settled", 0)])
+    s1.append(["Net Paid", led.get("net_paid", 0)])
+    s1.append(["Balance", led.get("final_balance", 0)])
+    _fb = float(led.get("final_balance", 0) or 0)
+    if _fb > 0:
+        s1.append(["Direction", f"You owe contractor Rs {round(_fb, 2)}"])
+    elif _fb < 0:
+        s1.append(["Direction", f"Contractor owes you Rs {round(-_fb, 2)}"])
+    else:
+        s1.append(["Direction", "Balanced"])
 
     s2 = wb.create_sheet("Visits")
     s2.append(["Date", "Workers", "Field/Crop", "Notes"])
@@ -325,11 +349,21 @@ async def contractor_whatsapp(cid: str, user: dict = Depends(get_current_user), 
     total_paid = sum(p["amount"] for p in payments)
     total_returned = sum(r["amount"] for r in returns)
     net_paid = round(total_paid - total_returned, 2)
+    # Compute contractor-scoped settled + direction via the same ledger.
+    led = await compute_contractor_ledger(user["user_id"], contractor)
+    total_settled = led.get("total_settled", 0)
+    fb = float(led.get("final_balance", 0) or 0)
 
     recent_visits = visits[:5]
     recent_pays = payments[:5]
 
     if lang == "kn":
+        if fb > 0:
+            bal_line = f"ಬಾಕಿ: ನೀವು ಗುತ್ತಿಗೆದಾರರಿಗೆ ರೂ {round(fb, 2)} ಸಾಲ"
+        elif fb < 0:
+            bal_line = f"ಬಾಕಿ: ಗುತ್ತಿಗೆದಾರ ನಿಮಗೆ ರೂ {round(-fb, 2)} ಸಾಲ"
+        else:
+            bal_line = "ಬಾಕಿ: ಸಮತೋಲನ"
         lines = [
             f"ನಮಸ್ಕಾರ {contractor['name']},",
             "",
@@ -337,7 +371,9 @@ async def contractor_whatsapp(cid: str, user: dict = Depends(get_current_user), 
             f"ಒಟ್ಟು ಕಾರ್ಮಿಕರು: {total_workers}",
             f"ಒಟ್ಟು ಪಾವತಿ: ರೂ {total_paid}",
             f"ವಾಪಸಾತಿ: ರೂ {total_returned}",
+            f"ಒಟ್ಟು ಇತ್ಯರ್ಥ: ರೂ {total_settled}",
             f"ನಿವ್ವಳ ಪಾವತಿ: ರೂ {net_paid}",
+            bal_line,
         ]
         if recent_visits:
             lines += ["", "ಇತ್ತೀಚಿನ ಭೇಟಿಗಳು:"]
@@ -348,6 +384,12 @@ async def contractor_whatsapp(cid: str, user: dict = Depends(get_current_user), 
             for p in recent_pays:
                 lines.append(f"• {p['date']} — ರೂ {p['amount']} ({p.get('method','')})")
     else:
+        if fb > 0:
+            bal_line = f"Balance: You owe contractor Rs {round(fb, 2)}"
+        elif fb < 0:
+            bal_line = f"Balance: Contractor owes you Rs {round(-fb, 2)}"
+        else:
+            bal_line = "Balance: Balanced"
         lines = [
             f"Hi {contractor['name']},",
             "",
@@ -355,7 +397,9 @@ async def contractor_whatsapp(cid: str, user: dict = Depends(get_current_user), 
             f"Total workers brought: {total_workers}",
             f"Total paid: Rs {total_paid}",
             f"Returned: Rs {total_returned}",
+            f"Total settled: Rs {total_settled}",
             f"Net paid: Rs {net_paid}",
+            bal_line,
         ]
         if recent_visits:
             lines += ["", "Recent visits:"]
