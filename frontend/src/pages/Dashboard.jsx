@@ -5,11 +5,16 @@ import FeedbackBell from "@/components/FeedbackBell";
 import AttendanceCalendar from "@/components/AttendanceCalendar";
 import { useApp } from "@/context/AppContext";
 
-function greeting(lang) {
-  const h = new Date().getHours();
-  if (h < 12) return lang === "kn" ? "ಶುಭೋದಯ" : "Good Morning";
-  if (h < 17) return lang === "kn" ? "ಶುಭ ಮಧ್ಯಾಹ್ನ" : "Good Afternoon";
-  return lang === "kn" ? "ಶುಭ ಸಂಜೆ" : "Good Evening";
+function greetingForHour(hour, lang) {
+  // Local-time buckets per spec:
+  // 05:00–11:59 → Good Morning
+  // 12:00–16:59 → Good Afternoon
+  // 17:00–20:59 → Good Evening
+  // 21:00–04:59 → Good Night
+  if (hour >= 5 && hour < 12) return lang === "kn" ? "ಶುಭೋದಯ" : "Good Morning";
+  if (hour >= 12 && hour < 17) return lang === "kn" ? "ಶುಭ ಮಧ್ಯಾಹ್ನ" : "Good Afternoon";
+  if (hour >= 17 && hour < 21) return lang === "kn" ? "ಶುಭ ಸಂಜೆ" : "Good Evening";
+  return lang === "kn" ? "ಶುಭ ರಾತ್ರಿ" : "Good Night";
 }
 
 // Inline SVG illustration — two farm workers with hoes. Kept as component
@@ -85,6 +90,13 @@ function LeafDecor({ className = "" }) {
 export default function Dashboard() {
   const { t, user, API, lang } = useApp();
   const [data, setData] = useState(null);
+  // Local-time greeting; re-check every minute so it flips at 05:00 / 12:00
+  // / 17:00 / 21:00 boundaries without a manual refresh.
+  const [hour, setHour] = useState(() => new Date().getHours());
+  useEffect(() => {
+    const id = setInterval(() => setHour(new Date().getHours()), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // Match the Reports peach background on Dashboard too (per Stage 1).
   useEffect(() => {
@@ -112,7 +124,7 @@ export default function Dashboard() {
           <LeafDecor className="absolute -right-2 -top-2 w-40 h-28 text-[hsl(var(--primary))]"/>
           <div className="relative">
             <div className="text-sm text-muted-foreground flex items-center gap-1">
-              {greeting(lang)} <span aria-hidden="true">🌤️</span>
+              {greetingForHour(hour, lang)} <span aria-hidden="true">🌤️</span>
             </div>
             <div className="mt-0.5 text-3xl font-bold tracking-tight text-[hsl(var(--primary))]">
               {farmLabel}
