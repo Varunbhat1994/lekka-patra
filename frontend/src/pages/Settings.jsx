@@ -24,6 +24,12 @@ export default function Settings() {
   const { t, user, lang, setLanguage, logout, setUser, API, refresh } = useApp();
   const nav = useNavigate();
 
+  // Match the Reports/Workers/Attendance warm peach background here too.
+  useEffect(() => {
+    document.body.classList.add("settings-page");
+    return () => document.body.classList.remove("settings-page");
+  }, []);
+
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState({ name: "", mobile: "" });
   const [saving, setSaving] = useState(false);
@@ -82,7 +88,7 @@ export default function Settings() {
         <TrialBanner />
 
         {/* Admin Profile card */}
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-4">
           <div className="flex items-center gap-3">
             {user?.picture ? (
               <img src={user.picture} alt="" className="h-12 w-12 rounded-full border border-border"/>
@@ -109,7 +115,7 @@ export default function Settings() {
         </div>
 
         {/* Language */}
-        <div className="rounded-xl border border-border bg-card p-4">
+        <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-4">
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground mb-3">
             <Translate size={16} weight="duotone"/>{t("language")}
           </div>
@@ -132,7 +138,7 @@ export default function Settings() {
 
         {/* Feedback */}
         <button data-testid="open-feedback-btn" onClick={() => setFbOpen(true)}
-          className="w-full rounded-xl border border-border bg-card p-4 flex items-center gap-3 text-left hover:bg-secondary/30">
+          className="w-full rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-4 flex items-center gap-3 text-left hover:bg-secondary/30">
           <div className="h-10 w-10 rounded-lg bg-[hsl(var(--accent))]/10 text-[hsl(var(--accent))] grid place-items-center">
             <ChatCircleDots size={22} weight="duotone"/>
           </div>
@@ -170,12 +176,40 @@ export default function Settings() {
           data-testid="logout-btn"
           onClick={async () => { await logout(); nav("/login"); }}
           variant="outline"
-          className="w-full min-h-[52px] rounded-xl border-[hsl(var(--accent))] text-[hsl(var(--accent))] hover:bg-[hsl(var(--accent))]/10"
+          className="w-full min-h-[52px] rounded-2xl border-[hsl(var(--accent))] text-[hsl(var(--accent))] hover:bg-[hsl(var(--accent))]/10 bg-white/70 backdrop-blur-sm"
         >
           <SignOut size={18} weight="duotone" className="mr-2"/>{t("logout")}
         </Button>
 
-        <div className="text-center text-[11px] text-muted-foreground pt-4">
+        {/* Developer / Support info */}
+        <div
+          data-testid="developer-info"
+          className="mt-2 rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-4 text-center space-y-3"
+        >
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Developed by
+            </div>
+            <div className="mt-1 text-sm font-semibold text-foreground">
+              Varun Bhat
+            </div>
+          </div>
+          <div className="h-px bg-[hsl(28_40%_88%)]"/>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Support / Contact
+            </div>
+            <a
+              data-testid="support-email-link"
+              href="mailto:bhatb506@gmail.com"
+              className="mt-1 inline-block text-sm font-medium text-[hsl(var(--primary))] hover:underline break-all"
+            >
+              bhatb506@gmail.com
+            </a>
+          </div>
+        </div>
+
+        <div className="text-center text-[11px] text-muted-foreground pt-2">
           Lekka Patra · ಲೆಕ್ಕ ಪತ್ರ · v1.0
         </div>
       </div>
