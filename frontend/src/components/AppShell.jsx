@@ -12,7 +12,7 @@ export default function AppShell({ children, title, right }) {
             </div>
           </header>
         )}
-        <main className="px-5 pt-4 pb-28">{children}</main>
+        <main className="px-5 pt-3 pb-20">{children}</main>
         <BottomNav />
       </div>
     </div>

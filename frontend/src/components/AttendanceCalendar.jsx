@@ -187,7 +187,7 @@ export default function AttendanceCalendar() {
   return (
     <div
       data-testid="attendance-calendar"
-      className="rounded-2xl border border-border bg-card p-4 space-y-3 shadow-sm"
+      className="rounded-2xl border border-border bg-card p-3 space-y-3 shadow-sm"
     >
       {/* Card header — Reference A style */}
       <div className="flex items-center gap-3">
@@ -270,7 +270,7 @@ export default function AttendanceCalendar() {
       {/* Date grid — filled emerald circle for marked, per Reference A */}
       <div className="grid grid-cols-7 gap-1">
         {cells.map((day, idx) => {
-          if (day == null) return <div key={idx} className="aspect-square"/>;
+          if (day == null) return <div key={idx} className="h-10"/>;
           const dateStr = `${year}-${pad2(month)}-${pad2(day)}`;
           const marked = workerMarks.has(dateStr);
           const status = workerMarks.get(dateStr);
@@ -281,7 +281,7 @@ export default function AttendanceCalendar() {
               data-marked={marked ? "1" : "0"}
               onClick={() => openDate(day)}
               className={
-                "aspect-square rounded-full text-sm flex items-center justify-center relative " +
+                "h-10 rounded-full text-sm flex items-center justify-center relative " +
                 "active:scale-[0.96] transition-transform " +
                 (marked
                   ? "bg-[hsl(var(--primary))] text-white font-semibold shadow-sm"
@@ -299,16 +299,11 @@ export default function AttendanceCalendar() {
       {/* Status legend — Reference A */}
       <div
         data-testid="calendar-status-legend"
-        className="pt-2 border-t border-border/70 space-y-1.5"
+        className="pt-2 border-t border-border/70 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs"
       >
-        <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-semibold">
-          Status Legend
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs">
-          <LegendItem label="Present" desc="Full day worked" className={statusPillClass("present")}/>
-          <LegendItem label="Half Day" desc="Half day worked" className={statusPillClass("half_day")}/>
-          <LegendItem label="Overtime" desc="Extra hours worked" className={statusPillClass("overtime")}/>
-        </div>
+        <LegendItem label="Present" desc="Full day" className={statusPillClass("present")}/>
+        <LegendItem label="Half Day" desc="Half day" className={statusPillClass("half_day")}/>
+        <LegendItem label="Overtime" desc="Extra hours" className={statusPillClass("overtime")}/>
       </div>
 
       {/* Date-tap bottom sheet */}

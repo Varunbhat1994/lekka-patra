@@ -102,7 +102,7 @@ export default function Dashboard() {
 
   return (
     <AppShell title={t("dashboard")} right={<FeedbackBell />}>
-      <div className="space-y-3">
+      <div className="space-y-2">
 
         {/* Greeting + light leafy hero */}
         <div
@@ -123,7 +123,7 @@ export default function Dashboard() {
         {/* Present Today — emerald gradient hero with worker illustration */}
         <div
           data-testid="stat-present"
-          className="relative overflow-hidden rounded-2xl p-4 text-white shadow-lg"
+          className="relative overflow-hidden rounded-2xl p-3 text-white shadow-lg"
           style={{
             background:
               "linear-gradient(135deg, hsl(140 55% 34%) 0%, hsl(150 60% 28%) 100%)",
@@ -143,7 +143,7 @@ export default function Dashboard() {
               {t("present_today")}
             </div>
           </div>
-          <div className="relative mt-2 text-5xl font-bold leading-none">
+          <div className="relative mt-2 text-4xl font-bold leading-none">
             {presentCount}
           </div>
           <div className="relative mt-1.5 text-sm text-white/85">
@@ -156,7 +156,7 @@ export default function Dashboard() {
         {/* Agri Expenses Coming Soon — warm illustrated card */}
         <div
           data-testid="agri-expenses-coming-soon"
-          className="relative overflow-hidden rounded-2xl border border-[hsl(45_60%_82%)] p-4"
+          className="relative overflow-hidden rounded-2xl border border-[hsl(45_60%_82%)] p-3"
           style={{
             background:
               "linear-gradient(180deg, hsl(45 65% 96%) 0%, hsl(35 60% 92%) 100%)",
