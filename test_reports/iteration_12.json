@@ -1,0 +1,24 @@
+{
+  "summary": "Backend-only verification of new 'present_count' field alongside 'days_worked' in worker ledger and PDF. Wrote new pytest file test_present_vs_days_worked.py (4 scenarios in 1 pytest entry, sharing one asyncio loop because motor binds to first loop). All 4 scenarios pass: (a) present+half_day+overtime@150 on 3 dates @ rate=500 -> present_count=3, days_worked=2.5, total_earned=1400; (b) same-date upsert keeps present_count=1; (c) contractor ledger unchanged and has no present_count; (d) cross-user isolation on /ledger, /reports/pdf?worker_id, /attendance, /advances, /returns, /workers DELETE (all 404). Ran all 5 pre-existing regression suites as scripts (they use raw asyncio.run in __main__, not pytest collection): test_accounting_audit.py (62/62), per_row_parity_test.py, pdf_history_parity_test.py, smoke_contractor_reports.py, final_freeze_verification.py — all pass. PDF summary table headers 'Present' + 'Days Worked' present; PDF body shows Rs 500 + Rs 150 (OT) with Final Amount 650.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_present_vs_days_worked.py",
+    "/app/test_reports/pytest/iter12_pvd.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "services/ledger.py: present_dates is a set of a['date'] strings — correctly de-duplicates per (worker,date). days_worked semantics preserved bit-for-bit (present=1, half=0.5, overtime with manual_amount=1, overtime legacy=1+h/8). Contractor ledger untouched: no present_count added, confirmed via /contractors/{id}/ledger response shape.",
+    "routes/reports.py:67-68: PDF summary now emits 7-column header ['Present','Days Worked','Total Earned','Advance','Returned','Settled','Balance']. Excel summary sheet still uses only 'Days Worked' (line 172) — spec was PDF-only so this is fine, but flag for consistency if UI later needs it.",
+    "Pre-existing test files test_accounting_audit.py etc. use `async def test_*` but the project has no pytest-asyncio and no conftest that supplies a loop. They only run as `python <file>` (via __main__/asyncio.run(main())). If future testing agents `pytest -q tests/` they will see 62 spurious 'failures'. Consider either (a) installing pytest-asyncio + setting asyncio_mode=auto, or (b) renaming those async def tests to _run_* and adding sync wrappers. Non-blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_present_vs_days_worked.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "n/a (backend-only per request)"},
+  "test_credentials": "Motor-seeded ephemeral users via _seed() helper (same pattern as final_freeze_verification.py). No shared credentials needed.",
+  "seed_data_creation": "Each scenario seeds & cleans its own user in users/user_sessions and all accounting collections; no leftover data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Regression suites (test_accounting_audit.py, per_row_parity_test.py, pdf_history_parity_test.py, smoke_contractor_reports.py, final_freeze_verification.py) must be run as SCRIPTS (`python tests/<file>.py`), NOT via pytest — they are async and no pytest-asyncio is installed. Only test_present_vs_days_worked.py is pytest-compatible. All 4 new scenarios pass under `pytest -n 2` per project pytest.ini."
+}
