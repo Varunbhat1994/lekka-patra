@@ -210,7 +210,7 @@ export default function Settings() {
         </div>
 
         <div className="text-center text-[11px] text-muted-foreground pt-2">
-          Lekka Patra · ಲೆಕ್ಕ ಪತ್ರ · v1.0
+          ಲೆಕ್ಕ ಪತ್ರ · v1.0
         </div>
       </div>
 

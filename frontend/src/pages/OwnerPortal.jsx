@@ -321,7 +321,7 @@ function OwnerFeedback({ API }) {
                 <Star size={10} weight="fill"/>{f.rating}
               </span>
             ) : null}
-            <span className="ml-auto">{new Date(f.created_at).toLocaleDateString()}</span>
+            <span className="ml-auto">{new Date(f.created_at).toLocaleDateString("en-GB")}</span>
           </div>
           <div className="text-sm mt-1.5 whitespace-pre-wrap break-words">{f.message}</div>
           {f.user_mobile && (

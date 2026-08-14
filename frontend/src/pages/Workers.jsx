@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Plus, PencilSimple, Trash, User } from "@phosphor-icons/react";
+import { Plus, PencilSimple, User } from "@phosphor-icons/react";
 import ContractorsSection from "@/pages/ContractorsSection";
 
 const empty = { name: "", mobile: "", skill: "", daily_rate: "" };
@@ -44,13 +44,9 @@ export default function Workers() {
     }
   };
 
-  const del = async (w) => {
-    if (!window.confirm(`Delete ${w.name}?`)) return;
-    try {
-      await axios.delete(`${API}/workers/${w.id}`);
-      load();
-    } catch { toast.error("Failed"); }
-  };
+  // NOTE: Worker delete UI removed per product spec. Edit remains.
+  // Backend DELETE /workers/{id} route is intentionally preserved server-side.
+
 
   return (
     <AppShell
@@ -98,16 +94,10 @@ export default function Workers() {
                 </div>
               </div>
               {!locked && (
-                <>
-                  <button data-testid={`edit-worker-${w.id}`} onClick={() => { setEditing(w); setForm({ ...empty, ...w, worker_type: w.worker_type || "regular" }); setOpen(true); }}
-                    className="h-9 w-9 grid place-items-center rounded-lg hover:bg-secondary text-muted-foreground">
-                    <PencilSimple size={16}/>
-                  </button>
-                  <button data-testid={`del-worker-${w.id}`} onClick={() => del(w)}
-                    className="h-9 w-9 grid place-items-center rounded-lg hover:bg-[hsl(var(--accent))]/10 text-[hsl(var(--accent))]">
-                    <Trash size={16}/>
-                  </button>
-                </>
+                <button data-testid={`edit-worker-${w.id}`} onClick={() => { setEditing(w); setForm({ ...empty, ...w, worker_type: w.worker_type || "regular" }); setOpen(true); }}
+                  className="h-9 w-9 grid place-items-center rounded-lg hover:bg-secondary text-muted-foreground">
+                  <PencilSimple size={16}/>
+                </button>
               )}
             </div>
           ))}

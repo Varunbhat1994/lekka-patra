@@ -108,7 +108,7 @@ export default function Login() {
             <div className="h-10 w-10 rounded-xl bg-white/20 backdrop-blur-md grid place-items-center border border-white/30">
               <Plant size={22} weight="duotone" />
             </div>
-            <span className="text-lg font-semibold tracking-tight">Lekka Patra</span>
+            <span className="text-lg font-semibold tracking-tight">ಲೆಕ್ಕ ಪತ್ರ</span>
           </div>
         </div>
 

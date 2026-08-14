@@ -70,6 +70,12 @@ Production-ready, mobile-responsive web app for agriculturists to track field la
 - **P2** Multi-admin management UI in Owner Portal (promote/demote without editing .env)
 - **P2** Weekly WhatsApp summary of attendance/wages to owner
 - **P2** iOS `apple-touch-startup-image` splash screens for device-specific PWA launch
+- **P2** TWA/Bubblewrap APK generation (blocked on SHA-256 fingerprint)
+
+## Changelog — Stage 2 (Feb 2026)
+- Removed the user-facing Delete-Worker UI (Trash icon + delete handler + `del-worker-{id}` testid) from `frontend/src/pages/Workers.jsx`. Backend `DELETE /api/workers/{id}` route intentionally untouched.
+- Global user-facing dates now render as `DD/MM/YYYY` via new helper `frontend/src/lib/formatDate.js`. Applied to WorkerHistory, ContractorHistory, ContractorsSection (visits/payments/returns), AttendanceCalendar detail sheet, OwnerPortal feedback, and FeedbackBell. API/DB/ISO timestamps and `<input type="date">` internal values remain unchanged.
+- Application title changed from "Lekka Patra" → "ಲೆಕ್ಕ ಪತ್ರ" wherever visible: `i18n.js` (en `app_name`), `Login.jsx` (hero brand chip), `LanguagePicker.jsx` (top brand), `Settings.jsx` (version footer). Font size/weight/family/color/position preserved exactly.
 
 ## RBAC / Monetization Rules
 - `is_owner` granted when logged-in mobile == OWNER_MOBILE or email == OWNER_EMAIL (backend/.env)

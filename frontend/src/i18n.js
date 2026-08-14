@@ -1,6 +1,6 @@
 export const translations = {
   en: {
-    app_name: "Lekka Patra",
+    app_name: "ಲೆಕ್ಕ ಪತ್ರ",
     tagline: "Track your farm labor, wages, and advances",
     choose_language: "Choose your language",
     continue: "Continue",

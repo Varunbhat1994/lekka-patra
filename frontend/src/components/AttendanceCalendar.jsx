@@ -335,9 +335,8 @@ export default function AttendanceCalendar() {
               </div>
               <div className="mt-3 text-lg font-bold" data-testid="sheet-date">
                 Attendance – {(() => {
-                  const [y, mo, d] = sheetDate.split("-").map(Number);
-                  const dObj = new Date(y, mo - 1, d);
-                  return dObj.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+                  const [y, mo, d] = sheetDate.split("-");
+                  return `${d}/${mo}/${y}`;
                 })()}
               </div>
               <div className="text-xs text-muted-foreground mt-1">

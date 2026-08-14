@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, FilePdf, CheckCircle, XCircle, Handshake, Wallet, ArrowDown, ArrowUp } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
+import { fmtDate } from "@/lib/formatDate";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND}/api`;
@@ -226,7 +227,7 @@ function Kpi({ label, value, tone }) {
 function Row({ date, left, desc, right }) {
   return (
     <div className="p-3 flex items-center gap-3">
-      <div className="text-[11px] text-muted-foreground w-14 shrink-0">{date}</div>
+      <div className="text-[11px] text-muted-foreground w-14 shrink-0">{fmtDate(date)}</div>
       <div className="w-24 shrink-0">{left}</div>
       <div className="flex-1 text-xs text-muted-foreground truncate">{desc}</div>
       <div className="text-sm shrink-0">{right}</div>

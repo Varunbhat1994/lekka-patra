@@ -14,6 +14,7 @@ import {
   Plus, HardHat, CalendarPlus, CurrencyInr, Trash,
   Users, Wallet, X, ArrowLeft, FilePdf, ArrowUUpLeft, ClockCounterClockwise, Check,
 } from "@phosphor-icons/react";
+import { fmtDate } from "@/lib/formatDate";
 
 const emptyContractor = { name: "", mobile: "", notes: "" };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -373,7 +374,7 @@ function ContractorDetail({ id, onClose }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium">
-                        {v.date} · {v.workers_count} {lang === "kn" ? "ಕಾರ್ಮಿಕರು" : "workers"}
+                        {fmtDate(v.date)} · {v.workers_count} {lang === "kn" ? "ಕಾರ್ಮಿಕರು" : "workers"}
                       </div>
                       <div className="text-[11px] text-muted-foreground truncate">
                         {v.field_crop || "—"}{v.notes ? ` · ${v.notes}` : ""}
@@ -451,7 +452,7 @@ function ContractorDetail({ id, onClose }) {
                         ₹{p.amount} <span className="text-muted-foreground text-xs">· {p.method?.toUpperCase()}</span>
                       </div>
                       <div className="text-[11px] text-muted-foreground truncate">
-                        {p.date}{p.notes ? ` · ${p.notes}` : ""}
+                        {fmtDate(p.date)}{p.notes ? ` · ${p.notes}` : ""}
                       </div>
                     </div>
                     {!locked && (
@@ -473,7 +474,7 @@ function ContractorDetail({ id, onClose }) {
                         + ₹{r.amount} <span className="text-muted-foreground text-xs">· {r.method?.toUpperCase()}</span>
                       </div>
                       <div className="text-[11px] text-muted-foreground truncate">
-                        {r.date} · {lang === "kn" ? "ವಾಪಸಾತಿ" : "Return"}{r.notes ? ` · ${r.notes}` : ""}
+                        {fmtDate(r.date)} · {lang === "kn" ? "ವಾಪಸಾತಿ" : "Return"}{r.notes ? ` · ${r.notes}` : ""}
                       </div>
                     </div>
                     {!locked && (

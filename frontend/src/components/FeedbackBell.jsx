@@ -103,7 +103,7 @@ export default function FeedbackBell() {
                     ) : null}
                   </div>
                   <div className="text-sm mt-0.5 whitespace-pre-wrap break-words">{f.message}</div>
-                  <div className="text-[10px] text-muted-foreground mt-1">{new Date(f.created_at).toLocaleString()}</div>
+                  <div className="text-[10px] text-muted-foreground mt-1">{new Date(f.created_at).toLocaleString("en-GB")}</div>
                 </div>
                 {!f.read && (
                   <button data-testid={`fb-dismiss-${f.id}`} onClick={() => markRead(f.id)}
