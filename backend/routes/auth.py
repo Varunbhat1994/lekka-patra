@@ -1,30 +1,28 @@
 """Authentication route handlers.
 
-Owns every existing /auth/* endpoint plus the /districts lookup:
-    POST /auth/session          — Emergent-managed Google OAuth exchange
-    GET  /auth/me               — current user + access + is_owner
-    POST /auth/logout           — clear session cookie
-    POST /auth/language         — persist user's UI language
-    POST /auth/otp/send         — dummy OTP generator
-    POST /auth/otp/verify       — verify OTP, mint session
-    POST /auth/firebase/verify  — verify Firebase Phone Auth ID token
-    POST /auth/profile          — set name + district (+ optional mobile)
-    GET  /districts             — Karnataka district list
+Phase 1 (auth overhaul): Google-only authentication. OTP and Firebase
+Phone endpoints have been removed. Existing OTP-only accounts still
+retain their data — on first Google login the user is prompted for
+their name + mobile in ProfileSetup, and if that mobile already
+belongs to an existing OTP-only account (email empty) the two accounts
+are merged: the pre-existing user_id is preserved (which keeps every
+worker/attendance/advance/return/settlement row linked to it) and the
+newly-created Google shell is deleted.
 
-Behavior is preserved bit-for-bit from the original implementation in
-server.py. This module only rearranges code; it does not modify auth
-logic, token formats, cookie flags, request/response schemas, or
-error responses.
+Endpoints:
+    POST /auth/session   — Emergent-managed Google OAuth exchange
+    GET  /auth/me        — current user + access + is_owner
+    POST /auth/logout    — clear session cookie
+    POST /auth/language  — persist user's UI language
+    POST /auth/profile   — set/edit name + mobile (district optional & deprecated)
+    GET  /districts      — Karnataka district list (owner portal still uses this)
 """
-import os
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import httpx
-import jwt
-from cachetools import TTLCache
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
@@ -49,29 +47,21 @@ def _now_utc() -> datetime:
 
 # ---------------- Pydantic models ----------------
 
-class OtpSendIn(BaseModel):
-    mobile: str
-
-
-class OtpVerifyIn(BaseModel):
-    mobile: str
-    otp: str
-
-
 class ProfileIn(BaseModel):
     name: str
-    district: str
+    # District is now optional and NOT surfaced in the user UI. It is
+    # kept in the schema so (a) legacy tests keep passing and (b) the
+    # owner portal (which still targets ads by district) can populate
+    # it out-of-band if ever needed.
+    district: Optional[str] = None
     mobile: Optional[str] = None
-
-
-class FirebaseIdTokenIn(BaseModel):
-    id_token: str
 
 
 # ---------------- Districts lookup ----------------
 
 @router.get("/districts")
 async def list_districts():
+    """Owner-portal ad targeting still uses the Karnataka district list."""
     return {"districts": KARNATAKA_DISTRICTS}
 
 
@@ -157,212 +147,120 @@ async def set_language(request: Request, user: dict = Depends(get_current_user))
     return {"ok": True, "language": lang}
 
 
-# ---------------- Mobile OTP Auth (dummy) ----------------
+# ---------------- Migration helper ----------------
 
-@router.post("/auth/otp/send")
-async def otp_send(payload: OtpSendIn):
-    mobile = _normalize_mobile(payload.mobile)
-    if len(mobile) < 10:
-        raise HTTPException(400, "Invalid mobile number")
-    import random
-    otp = f"{random.randint(0, 999999):06d}"
-    await db.otps.update_one(
-        {"mobile": mobile},
-        {"$set": {
-            "mobile": mobile, "otp": otp,
-            "expires_at": (_now_utc() + timedelta(minutes=5)).isoformat(),
-            "attempts": 0,
-            "created_at": _now_utc().isoformat(),
-        }},
-        upsert=True,
-    )
-    # DEV MODE: return OTP directly. Wire a real SMS provider (Twilio/MSG91)
-    # here for production.
-    return {"ok": True, "mobile": mobile, "dev_otp": otp}
+async def _current_shell_has_data(user_id: str) -> bool:
+    """Return True if the caller has already created any operational data.
 
-
-@router.post("/auth/otp/verify")
-async def otp_verify(payload: OtpVerifyIn, response: Response):
-    mobile = _normalize_mobile(payload.mobile)
-    rec = await db.otps.find_one({"mobile": mobile}, {"_id": 0})
-    if not rec:
-        raise HTTPException(400, "OTP not requested")
-    exp = rec["expires_at"]
-    if isinstance(exp, str):
-        exp = datetime.fromisoformat(exp)
-    if exp.tzinfo is None:
-        exp = exp.replace(tzinfo=timezone.utc)
-    if exp < _now_utc():
-        raise HTTPException(400, "OTP expired")
-    if rec.get("attempts", 0) >= 5:
-        raise HTTPException(429, "Too many attempts")
-    if rec["otp"] != payload.otp.strip():
-        await db.otps.update_one({"mobile": mobile}, {"$inc": {"attempts": 1}})
-        raise HTTPException(400, "Invalid OTP")
-
-    await db.otps.delete_one({"mobile": mobile})
-
-    existing = await db.users.find_one({"mobile": mobile}, {"_id": 0})
-    if existing:
-        user_id = existing["user_id"]
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        await db.users.insert_one({
-            "user_id": user_id,
-            "mobile": mobile,
-            "name": "",
-            "district": "",
-            "language": "en",
-            "trial_start": _now_utc().isoformat(),
-            "is_paid": False,
-            "created_at": _now_utc().isoformat(),
-        })
-
-    session_token = f"mobile_{uuid.uuid4().hex}"
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": (_now_utc() + timedelta(days=30)).isoformat(),
-        "created_at": _now_utc().isoformat(),
-    })
-    response.set_cookie(
-        key="session_token", value=session_token,
-        httponly=True, secure=True, samesite="none",
-        max_age=30 * 24 * 3600, path="/",
-    )
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    # Promote owner if configured
-    await _promote_owner_if_needed(user_id, user.get("mobile"))
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    user["access"] = compute_access(user)
-    user["is_owner"] = is_owner(user)
-    needs_profile = not (user.get("name") and user.get("district"))
-    return {"user": user, "session_token": session_token, "needs_profile": needs_profile}
-
-
-# ---------------- Firebase Phone Auth ----------------
-
-_FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID", "")
-_FIREBASE_JWKS_URL = "https://www.googleapis.com/robot/v1/metadata/x509/[email protected]"
-_firebase_certs_cache: TTLCache = TTLCache(maxsize=1, ttl=3600)
-
-
-async def _get_firebase_certs():
-    if "certs" in _firebase_certs_cache:
-        return _firebase_certs_cache["certs"]
-    async with httpx.AsyncClient(timeout=5) as c:
-        r = await c.get(_FIREBASE_JWKS_URL)
-        r.raise_for_status()
-        certs = r.json()
-    _firebase_certs_cache["certs"] = certs
-    return certs
-
-
-@router.post("/auth/firebase/verify")
-async def firebase_verify(payload: FirebaseIdTokenIn, response: Response):
-    if not _FIREBASE_PROJECT_ID:
-        raise HTTPException(500, "Firebase project not configured")
-    token = payload.id_token
-    try:
-        unverified_header = jwt.get_unverified_header(token)
-        kid = unverified_header.get("kid")
-        if not kid:
-            raise HTTPException(400, "Missing kid in token header")
-        certs = await _get_firebase_certs()
-        cert_pem = certs.get(kid)
-        if not cert_pem:
-            # cert rotated — invalidate cache and retry once
-            _firebase_certs_cache.clear()
-            certs = await _get_firebase_certs()
-            cert_pem = certs.get(kid)
-        if not cert_pem:
-            raise HTTPException(401, "Unknown signing key")
-        # Load public key from x509 cert
-        from cryptography.x509 import load_pem_x509_certificate
-        cert_obj = load_pem_x509_certificate(cert_pem.encode())
-        public_key = cert_obj.public_key()
-        claims = jwt.decode(
-            token,
-            public_key,
-            algorithms=["RS256"],
-            audience=_FIREBASE_PROJECT_ID,
-            issuer=f"https://securetoken.google.com/{_FIREBASE_PROJECT_ID}",
-            options={"require": ["exp", "iat", "sub", "aud", "iss"]},
-        )
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(401, "Token expired")
-    except jwt.InvalidTokenError as e:
-        raise HTTPException(401, f"Invalid token: {e}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("firebase verify failed: %s", e)
-        raise HTTPException(500, "Verification failed")
-
-    phone_number = claims.get("phone_number") or ""
-    if not phone_number:
-        raise HTTPException(400, "Firebase token has no phone_number claim")
-    mobile = _normalize_mobile(phone_number)
-
-    existing = await db.users.find_one({"mobile": mobile}, {"_id": 0})
-    if existing:
-        user_id = existing["user_id"]
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        await db.users.insert_one({
-            "user_id": user_id,
-            "mobile": mobile,
-            "firebase_uid": claims.get("sub", ""),
-            "name": "",
-            "district": "",
-            "language": "en",
-            "trial_start": _now_utc().isoformat(),
-            "is_paid": False,
-            "created_at": _now_utc().isoformat(),
-        })
-
-    session_token = f"mobile_{uuid.uuid4().hex}"
-    await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
-        "expires_at": (_now_utc() + timedelta(days=30)).isoformat(),
-        "created_at": _now_utc().isoformat(),
-    })
-    response.set_cookie(
-        key="session_token", value=session_token,
-        httponly=True, secure=True, samesite="none",
-        max_age=30 * 24 * 3600, path="/",
-    )
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    await _promote_owner_if_needed(user_id, user.get("mobile"))
-    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    user["access"] = compute_access(user)
-    user["is_owner"] = is_owner(user)
-    needs_profile = not (user.get("name") and user.get("district"))
-    return {"user": user, "session_token": session_token, "needs_profile": needs_profile}
+    Used to safeguard the merge-on-mobile-match path — we only merge into
+    an older OTP-only account when the current Google shell is empty
+    (i.e. hasn't started tracking workers/attendance yet). This prevents
+    accidentally overwriting user data.
+    """
+    for coll in (
+        "workers", "attendance", "advances", "returns",
+        "settlements", "contractors",
+        "contractor_visits", "contractor_payments", "contractor_returns",
+    ):
+        n = await db[coll].count_documents({"user_id": user_id}, limit=1)
+        if n:
+            return True
+    return False
 
 
 # ---------------- Profile setup ----------------
 
 @router.post("/auth/profile")
-async def set_profile(payload: ProfileIn, user: dict = Depends(get_current_user)):
-    if payload.district not in KARNATAKA_DISTRICTS:
-        raise HTTPException(400, "Invalid district")
+async def set_profile(payload: ProfileIn, request: Request, response: Response,
+                       user: dict = Depends(get_current_user)):
+    """Set or edit the authenticated user's Name + Mobile.
+
+    District is accepted for backwards compatibility but no longer
+    surfaced in the UI. Mobile is validated as India 10-digit numeric.
+    If mobile matches a pre-existing OTP-only account (email empty),
+    the current Google shell is MERGED into the older account so no
+    OTP-migrated user is stranded from their data — provided the shell
+    has not yet accumulated any operational data.
+    """
     if not payload.name.strip():
         raise HTTPException(400, "Name required")
-    update = {"name": payload.name.strip(), "district": payload.district}
-    if payload.mobile is not None and payload.mobile.strip():
-        new_mobile = _normalize_mobile(payload.mobile)
-        if len(new_mobile) < 10:
-            raise HTTPException(400, "Invalid mobile")
-        # Check uniqueness (other users can't own the same mobile)
+
+    update: dict = {"name": payload.name.strip()}
+    # District: keep-if-provided, no strict validation (legacy behavior).
+    if payload.district is not None and payload.district.strip():
+        # If a district IS supplied, still verify it is one of ours
+        # (owner portal uses this list). Silently ignore blanks/None.
+        if payload.district not in KARNATAKA_DISTRICTS:
+            raise HTTPException(400, "Invalid district")
+        update["district"] = payload.district
+
+    if payload.mobile is not None and str(payload.mobile).strip():
+        raw = str(payload.mobile).strip()
+        # Frontend contract: 10 digits, no country code, no spaces.
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        if len(digits) != 10:
+            raise HTTPException(400, "Mobile must be exactly 10 digits")
+        # Canonical storage form is unchanged from the OTP era to keep
+        # foreign matches working (`_normalize_mobile` strips leading '+'
+        # and country prefix if present). New Google-flow input has none.
+        new_mobile = _normalize_mobile(digits)
         conflict = await db.users.find_one(
-            {"mobile": new_mobile, "user_id": {"$ne": user["user_id"]}}, {"_id": 0}
+            {"mobile": new_mobile, "user_id": {"$ne": user["user_id"]}},
+            {"_id": 0},
         )
         if conflict:
+            conflict_has_email = bool((conflict.get("email") or "").strip())
+            shell_empty = not await _current_shell_has_data(user["user_id"])
+            if not conflict_has_email and shell_empty:
+                # ---------- MIGRATION MERGE ----------
+                # Move the Google identity onto the pre-existing OTP-only
+                # user so all workers/attendance/etc. remain linked.
+                await db.users.update_one(
+                    {"user_id": conflict["user_id"]},
+                    {"$set": {
+                        "email": user.get("email"),
+                        "picture": user.get("picture"),
+                        "name": payload.name.strip(),
+                        "google_linked_at": _now_utc().isoformat(),
+                    }},
+                )
+                # Reassign the current session token → the older user_id.
+                # Accept both cookie and Authorization header, matching
+                # `get_current_user`.
+                session_token = request.cookies.get("session_token")
+                if not session_token:
+                    auth = request.headers.get("Authorization", "")
+                    if auth.startswith("Bearer "):
+                        session_token = auth[7:]
+                if session_token:
+                    await db.user_sessions.update_many(
+                        {"session_token": session_token},
+                        {"$set": {"user_id": conflict["user_id"]}},
+                    )
+                # Discard OTHER sessions of the (empty) Google shell and
+                # then the shell itself. We deliberately delete by
+                # user_id AFTER re-pointing the current token so the
+                # active session survives.
+                await db.user_sessions.delete_many({"user_id": user["user_id"]})
+                await db.users.delete_one({"user_id": user["user_id"]})
+                await _promote_owner_if_needed(
+                    conflict["user_id"], mobile=new_mobile,
+                    email=user.get("email"),
+                )
+                merged = await db.users.find_one(
+                    {"user_id": conflict["user_id"]}, {"_id": 0}
+                )
+                merged["access"] = compute_access(merged)
+                merged["is_owner"] = is_owner(merged)
+                return {"ok": True, "user": merged, "merged": True,
+                        "merged_into_user_id": conflict["user_id"]}
+            # Real conflict: another Google user has this mobile, OR
+            # the current shell already owns data (protect it).
             raise HTTPException(409, "Mobile already used by another account")
         update["mobile"] = new_mobile
+
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     updated["access"] = compute_access(updated)
+    updated["is_owner"] = is_owner(updated)
     return {"ok": True, "user": updated}

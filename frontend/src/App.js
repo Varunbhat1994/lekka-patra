@@ -6,7 +6,6 @@ import BetaBanner from "@/components/BetaBanner";
 
 import LanguagePicker from "@/pages/LanguagePicker";
 import Login from "@/pages/Login";
-import OtpLogin from "@/pages/OtpLogin";
 import ProfileSetup from "@/pages/ProfileSetup";
 import AuthCallback from "@/pages/AuthCallback";
 import OwnerPortal from "@/pages/OwnerPortal";
@@ -24,8 +23,8 @@ function Protected({ children, requireProfile = true }) {
     return <div className="min-h-screen grid place-items-center text-sm text-muted-foreground">Loading…</div>;
   }
   if (!user) return <Navigate to="/login" replace />;
-  // Mobile users must complete profile (name + district) before entering the app
-  if (requireProfile && user.mobile && !(user.name && user.district)) {
+  // Phase 1: every user (Google login) must complete Name + Mobile before entering the app.
+  if (requireProfile && !(user.name && user.mobile)) {
     return <Navigate to="/profile-setup" replace />;
   }
   return children;
@@ -46,7 +45,6 @@ function AppRouter() {
     <Routes>
       <Route path="/" element={<LandingRoute />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/otp" element={<OtpLogin />} />
       <Route path="/profile-setup" element={<Protected requireProfile={false}><ProfileSetup /></Protected>} />
       <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
       <Route path="/workers" element={<Protected><Workers /></Protected>} />

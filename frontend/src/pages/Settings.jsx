@@ -16,7 +16,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  SignOut, Translate, Check, UserCircle, MapPin, DeviceMobile,
+  SignOut, Translate, Check, UserCircle, DeviceMobile,
   PencilSimple, ChatCircleDots, Star, ShieldCheck,
 } from "@phosphor-icons/react";
 
@@ -25,36 +25,30 @@ export default function Settings() {
   const nav = useNavigate();
 
   const [editOpen, setEditOpen] = useState(false);
-  const [form, setForm] = useState({ name: "", district: "", mobile: "" });
-  const [districts, setDistricts] = useState([]);
+  const [form, setForm] = useState({ name: "", mobile: "" });
   const [saving, setSaving] = useState(false);
 
   const [fbOpen, setFbOpen] = useState(false);
   const [fb, setFb] = useState({ message: "", rating: 0, category: "general" });
   const [fbSubmitting, setFbSubmitting] = useState(false);
 
-  useEffect(() => {
-    axios.get(`${API}/districts`).then(r => setDistricts(r.data.districts)).catch(()=>{});
-  }, [API]);
-
   const openEdit = () => {
     setForm({
       name: user?.name || "",
-      district: user?.district || "",
-      mobile: (user?.mobile || "").replace(/^91/, ""),
+      mobile: (user?.mobile || "").replace(/^91/, "").slice(-10),
     });
     setEditOpen(true);
   };
 
   const saveProfile = async () => {
     if (!form.name.trim()) return toast.error(lang === "kn" ? "ಹೆಸರು ಬೇಕು" : "Name required");
-    if (!form.district) return toast.error(lang === "kn" ? "ಜಿಲ್ಲೆ ಆಯ್ಕೆಮಾಡಿ" : "Choose a district");
+    const digits = form.mobile.replace(/\D/g, "");
+    if (digits.length !== 10) return toast.error(lang === "kn" ? "10-ಅಂಕಿ ಮೊಬೈಲ್" : "Enter a 10-digit mobile");
     setSaving(true);
     try {
       const { data } = await axios.post(`${API}/auth/profile`, {
         name: form.name.trim(),
-        district: form.district,
-        mobile: form.mobile.trim() || null,
+        mobile: digits,
       });
       setUser(data.user);
       await refresh();
@@ -106,7 +100,6 @@ export default function Settings() {
           </div>
           <div className="mt-3 space-y-1.5 text-sm">
             <Row icon={DeviceMobile} label={lang === "kn" ? "ಮೊಬೈಲ್" : "Mobile"} value={user?.mobile ? `+${user.mobile}` : (user?.email || "—")} />
-            <Row icon={MapPin} label={lang === "kn" ? "ಜಿಲ್ಲೆ" : "District"} value={user?.district || "—"} />
           </div>
           <Button data-testid="edit-profile-btn" onClick={openEdit} variant="outline"
             className="w-full mt-3 min-h-[44px] rounded-lg">
@@ -202,25 +195,13 @@ export default function Settings() {
             <div>
               <Label className="text-xs uppercase tracking-[0.15em] text-muted-foreground">{lang === "kn" ? "ಮೊಬೈಲ್" : "Mobile (10 digits)"}</Label>
               <div className="flex items-center gap-2 rounded-lg border border-input min-h-[48px] px-3">
-                <span className="text-sm text-muted-foreground">+91</span>
+                <span data-testid="edit-mobile-prefix" className="text-sm text-muted-foreground">+91</span>
+                <span className="text-muted-foreground">|</span>
                 <Input data-testid="edit-mobile-input" value={form.mobile}
                   inputMode="numeric"
                   onChange={e => setForm({...form, mobile: e.target.value.replace(/\D/g, "").slice(0,10)})}
                   className="border-0 focus-visible:ring-0 px-0 min-h-[44px]"/>
               </div>
-            </div>
-            <div>
-              <Label className="text-xs uppercase tracking-[0.15em] text-muted-foreground">{lang === "kn" ? "ಜಿಲ್ಲೆ" : "District"}</Label>
-              <Select value={form.district} onValueChange={v => setForm({...form, district: v})}>
-                <SelectTrigger data-testid="edit-district-trigger" className="min-h-[48px] rounded-lg">
-                  <SelectValue placeholder={lang === "kn" ? "ಜಿಲ್ಲೆ" : "District"}/>
-                </SelectTrigger>
-                <SelectContent className="max-h-72">
-                  {districts.map(d => (
-                    <SelectItem key={d} value={d} data-testid={`edit-district-${d}`}>{d}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
           </div>
           <DialogFooter className="gap-2">

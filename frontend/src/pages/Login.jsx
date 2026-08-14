@@ -1,6 +1,6 @@
 import { useApp } from "@/context/AppContext";
 import { Button } from "@/components/ui/button";
-import { GoogleLogo, Plant, DeviceMobile } from "@phosphor-icons/react";
+import { GoogleLogo, Plant } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 
 export default function Login() {
@@ -50,24 +50,10 @@ export default function Login() {
               {t("google_signin")}
             </Button>
 
-            <div className="my-4 flex items-center gap-3 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              <div className="h-px bg-border flex-1"/> or <div className="h-px bg-border flex-1"/>
-            </div>
-
-            <Button
-              data-testid="mobile-signin-btn"
-              onClick={() => nav("/otp")}
-              variant="outline"
-              className="w-full min-h-[52px] rounded-xl border-[hsl(var(--primary))] text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/5"
-            >
-              <DeviceMobile size={20} weight="duotone" className="mr-2"/>
-              {lang === "kn" ? "ಮೊಬೈಲ್ ಸಂಖ್ಯೆಯಿಂದ" : "Continue with mobile"}
-            </Button>
-
             <button
               data-testid="lang-switch-btn"
               onClick={() => nav("/")}
-              className="mt-3 w-full text-xs text-muted-foreground hover:underline"
+              className="mt-4 w-full text-xs text-muted-foreground hover:underline"
             >
               {lang === "kn" ? "ಭಾಷೆ ಬದಲಾಯಿಸಿ" : "Change language"}
             </button>
