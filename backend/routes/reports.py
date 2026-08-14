@@ -55,6 +55,14 @@ async def report_pdf(
     for w in workers:
         led = await compute_worker_ledger(user["user_id"], w, start=start, end=end)
         story.append(Paragraph(f"<b>{w['name']}</b> ({w.get('skill','')}) — Rate: Rs {w['daily_rate']}", styles["Heading3"]))
+        # Direction sentence — mirrors what WorkerHistory shows on screen.
+        _fb = float(led.get("final_balance", 0) or 0)
+        if _fb > 0:
+            story.append(Paragraph(f"<b>You owe worker Rs {round(_fb, 2)}</b>", styles["Normal"]))
+        elif _fb < 0:
+            story.append(Paragraph(f"<b>Worker owes you Rs {round(-_fb, 2)}</b>", styles["Normal"]))
+        else:
+            story.append(Paragraph("<b>Balanced</b>", styles["Normal"]))
         summary = [
             ["Days Worked", "Total Earned", "Advance", "Returned", "Settled", "Earned (period)", "Balance"],
             [led["days_worked"], f"Rs {led['total_earned']}",
@@ -72,16 +80,27 @@ async def report_pdf(
         ]))
         story.append(t)
 
-        # Date-wise attendance log
+        # Date-wise attendance log — must reflect manual half-day wage and
+        # manual overtime amount so the PDF matches the Worker History
+        # screen 1:1. Legacy overtime_hours rows continue to show hours.
         if led["attendance"]:
             story.append(Spacer(1, 6))
             story.append(Paragraph("<b>Attendance (date-wise)</b>", styles["Normal"]))
-            att_rows = [["Date", "Status", "OT hrs", "Field/Crop", "Description"]]
+            att_rows = [["Date", "Status", "OT (hrs/amt)", "Manual Wage", "Field/Crop", "Description"]]
             for a in sorted(led["attendance"], key=lambda x: x["date"]):
+                # Prefer the amount-based overtime display; fall back to hours.
+                if a.get("overtime_amount") is not None:
+                    ot_col = f"Rs {a['overtime_amount']}"
+                elif a.get("overtime_hours"):
+                    ot_col = f"{a['overtime_hours']} hrs"
+                else:
+                    ot_col = ""
+                mw_col = f"Rs {a['manual_wage']}" if a.get("manual_wage") is not None else ""
                 att_rows.append([
                     a["date"],
                     a["status"].replace("_", " ").title(),
-                    a.get("overtime_hours", 0) or "",
+                    ot_col,
+                    mw_col,
                     a.get("field_crop", ""),
                     (a.get("description", "") or "")[:60],
                 ])
@@ -101,7 +120,10 @@ async def report_pdf(
             for a in sorted(led["advances"], key=lambda x: x["date"]):
                 rows.append([a["date"], "Advance", f"Rs {a['amount']}", a.get("method", ""), a.get("notes", "")])
             for r in sorted(led["returns"], key=lambda x: x["date"]):
-                rows.append([r["date"], "Return", f"Rs {r['amount']}", r.get("method", ""), r.get("notes", "")])
+                # Distinguish auto-created returns from voluntary ones so the
+                # settlement flow is auditable on the exported report.
+                kind = "Return (settlement)" if r.get("settlement_id") else "Return"
+                rows.append([r["date"], kind, f"Rs {r['amount']}", r.get("method", ""), r.get("notes", "")])
             tab = Table(rows, hAlign="LEFT")
             tab.setStyle(TableStyle([
                 ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")),
@@ -110,6 +132,28 @@ async def report_pdf(
                 ("PADDING", (0,0), (-1,-1), 4),
             ]))
             story.append(tab)
+
+        # Settlements section — new. Ensures the PDF surfaces the same
+        # settlement history the Worker History screen shows.
+        if led.get("settlements"):
+            story.append(Spacer(1, 6))
+            story.append(Paragraph("<b>Settlements</b>", styles["Normal"]))
+            srows = [["Up To", "Amount", "Mode", "Notes"]]
+            for s in sorted(led["settlements"], key=lambda x: x.get("up_to_date", "")):
+                srows.append([
+                    s.get("up_to_date", ""),
+                    f"Rs {s.get('amount', 0)}",
+                    s.get("mode", ""),
+                    s.get("notes", "") or "",
+                ])
+            stab = Table(srows, hAlign="LEFT")
+            stab.setStyle(TableStyle([
+                ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")),
+                ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+                ("FONTSIZE", (0,0), (-1,-1), 9),
+                ("PADDING", (0,0), (-1,-1), 4),
+            ]))
+            story.append(stab)
         story.append(Spacer(1, 16))
 
     doc.build(story)

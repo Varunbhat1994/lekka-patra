@@ -280,7 +280,14 @@ export default function Ledger() {
                       <ArrowUUpLeft size={14} className="mr-1"/>{lang === "kn" ? "ವಾಪಸಾತಿ" : "Return"}
                     </Button>
                   )}
-                  <Button data-testid={`pdf-${w.id}`} onClick={() => downloadFile(`/reports/pdf?worker_id=${w.id}`, `${w.name}.pdf`)}
+                  <Button data-testid={`pdf-${w.id}`} onClick={() => {
+                    const rq = rangeParams();
+                    // rangeParams returns "?start=X&end=Y" or "" — merge with worker_id.
+                    const url = rq
+                      ? `/reports/pdf${rq}&worker_id=${w.id}`
+                      : `/reports/pdf?worker_id=${w.id}`;
+                    downloadFile(url, `${w.name}.pdf`);
+                  }}
                     size="sm" variant="outline" className="flex-1 min-w-[calc(50%-4px)] rounded-lg">
                     <FilePdf size={14} className="mr-1"/>PDF
                   </Button>
