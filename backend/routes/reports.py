@@ -35,6 +35,11 @@ async def report_pdf(
     if worker_id:
         workers_query["id"] = worker_id
     workers = await db.workers.find(workers_query, {"_id": 0}).to_list(1000)
+    # Strict ownership: when a specific worker_id is requested but the
+    # caller does not own that worker, respond 404 instead of returning
+    # an empty PDF that could be mistaken for a valid report.
+    if worker_id and not workers:
+        raise HTTPException(404, "Worker not found")
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, title="Farm Labor Report")
@@ -128,6 +133,10 @@ async def report_excel(
     if worker_id:
         workers_query["id"] = worker_id
     workers = await db.workers.find(workers_query, {"_id": 0}).to_list(1000)
+    # Strict ownership: 404 when a worker_id is supplied but not owned
+    # by the caller — do NOT return an empty Excel with just headers.
+    if worker_id and not workers:
+        raise HTTPException(404, "Worker not found")
     for w in workers:
         led = await compute_worker_ledger(user["user_id"], w, start=start, end=end)
         ws.append([w["name"], w.get("skill",""), w["daily_rate"],

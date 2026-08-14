@@ -1372,68 +1372,249 @@ async def test_56_e2e_http_attendance_manual_flow():
         await db.user_sessions.delete_many({"session_token": token})
 
 
-TESTS = [
-    test_01_earned_only,
-    test_02_advance_only,
-    test_03_earned_plus_advance,
-    test_04_earned_plus_advance_plus_return,
-    test_05_exact_settlement,
-    test_06_settlement_with_outstanding_advance,
-    test_07_adjust_advance_gt_earned,
-    test_08_adjust_advance_lt_earned,
-    test_09_actual_paid_gt_earned,
-    test_10_multiple_advances,
-    test_11_multiple_returns,
-    test_12_multiple_settlement_periods,
-    test_13_settlement_then_new_attendance,
-    test_14_undo_settlement_actual_paid,
-    test_14b_undo_settlement_adjust,
-    test_15_full_year_history,
-    test_16_month_history,
-    test_17_pre_settlement_history,
-    test_18_pdf_excel_consistency,
-    test_19_cross_user_isolation,
-    test_20_ledger_vs_worker_history_consistency,
-    test_21_multi_worker_isolation,
-    test_22_advance_after_settlement,
-    test_23_return_before_settlement,
-    test_24_absent_days_dont_earn,
-    test_25_half_day_and_overtime,
-    test_26_dashboard_pending_wage_matches_workers_sum,
-    test_27_dashboard_excludes_workers_without_advance,
-    test_28_ownership_rejection_advance,
-    test_29_ownership_rejection_return_and_attendance,
-    test_30_reports_use_same_final_balance,
-    test_31_repeated_settle_new_period,
-    test_32_year_month_filter_stable_reload,
-    test_33_wage_change_preserves_history,
-    test_34_triple_wage_change,
-    test_35_wage_change_without_new_work,
-    test_36_legacy_row_fallback,
-    test_37_settlement_across_wage_change,
-    test_38_user_isolation_on_wage_change,
-    test_39_e2e_http_wage_snapshot,
-    test_40_contractor_lifetime_net_paid,
-    test_41_contractor_settle_zeros_balance,
-    test_42_contractor_full_year_history_shows_settle,
-    test_43_contractor_partial_return_no_settle,
-    test_44_contractor_user_isolation,
-    test_45_contractor_settle_never_leaks_into_worker_totals,
-    test_46_dashboard_contractor_pending_direction,
-    test_48_half_day_manual_wage_used_verbatim,
-    test_49_half_day_no_manual_falls_back,
-    test_50_wage_edit_does_not_rewrite_manual_wage,
-    test_51_overtime_amount_used_verbatim,
-    test_52_wage_edit_does_not_rewrite_overtime_amount,
-    test_53_legacy_overtime_hours_unchanged,
-    test_54_pdf_excel_reflect_manual_values,
-    test_55_full_year_history_reflects_manual_values,
-    test_56_e2e_http_attendance_manual_flow,
-]
+
+
+# ==================================================================
+# ISSUE 1–5 REGRESSION TESTS (approved fixes)
+# ==================================================================
+
+from datetime import datetime, timezone, timedelta  # noqa: E402
+
+
+async def _seed_user_session(uid: str, mobile: str) -> str:
+    now = datetime.now(timezone.utc)
+    await db.users.insert_one({
+        "user_id": uid, "email": f"{uid}@t.com", "mobile": mobile,
+        "name": f"F_{uid[:6]}", "role": "owner",
+        "subscription_active": True,
+        "subscription_expires_at": (now + timedelta(days=365)).isoformat(),
+        "trial_starts_at": now.isoformat(),
+        "trial_expires_at": (now + timedelta(days=365)).isoformat(),
+        "created_at": now.isoformat(),
+    })
+    token = uuid.uuid4().hex + uuid.uuid4().hex
+    await db.user_sessions.insert_one({
+        "session_token": token, "user_id": uid,
+        "expires_at": (now + timedelta(hours=2)).isoformat(),
+        "created_at": now.isoformat(),
+    })
+    return token
+
+
+async def _wipe_user(uid: str) -> None:
+    for coll in ("users", "user_sessions", "workers", "attendance",
+                 "advances", "advance_returns", "settlements",
+                 "contractors", "contractor_visits",
+                 "contractor_payments", "contractor_returns"):
+        await db[coll].delete_many({"user_id": uid})
+
+
+async def _http_pair():
+    """Create two isolated users (A, B) and return their httpx clients."""
+    import httpx
+    BASE = os.environ.get("REACT_APP_BACKEND_URL",
+        "https://field-crew-log-1.preview.emergentagent.com") + "/api"
+    uidA = f"iso_A_{uuid.uuid4().hex[:6]}"
+    uidB = f"iso_B_{uuid.uuid4().hex[:6]}"
+    tokA = await _seed_user_session(uidA, "9000010001")
+    tokB = await _seed_user_session(uidB, "9000010002")
+    cA = httpx.AsyncClient(base_url=BASE, headers={"Authorization": f"Bearer {tokA}"}, timeout=30, verify=False)
+    cB = httpx.AsyncClient(base_url=BASE, headers={"Authorization": f"Bearer {tokB}"}, timeout=30, verify=False)
+    return uidA, uidB, cA, cB
+
+
+async def test_57_worker_pdf_excel_reject_unowned_worker_id():
+    """Issue 1: /reports/pdf and /reports/excel with an unowned worker_id → 404."""
+    uidA, uidB, cA, cB = await _http_pair()
+    try:
+        wA = (await cA.post("/workers", json={"name":"A","mobile":"","skill":"","daily_rate":500,"worker_type":"regular"})).json()
+        # A on own → 200
+        r_pdf_own = await cA.get(f"/reports/pdf?worker_id={wA['id']}")
+        r_xls_own = await cA.get(f"/reports/excel?worker_id={wA['id']}")
+        assert r_pdf_own.status_code == 200 and r_xls_own.status_code == 200, (r_pdf_own.text, r_xls_own.text)
+        # B against A's worker → 404
+        r_pdf = await cB.get(f"/reports/pdf?worker_id={wA['id']}")
+        r_xls = await cB.get(f"/reports/excel?worker_id={wA['id']}")
+        assert r_pdf.status_code == 404 and r_xls.status_code == 404, (r_pdf.status_code, r_xls.status_code)
+        print("57 report ownership ✓  Own → 200; unowned → 404 for PDF and Excel")
+    finally:
+        await cA.aclose(); await cB.aclose()
+        await _wipe_user(uidA); await _wipe_user(uidB)
+
+
+async def test_58_contractor_visit_ownership_required():
+    """Issue 2: POST /contractor-visits with unowned contractor_id → 404, no row created."""
+    uidA, uidB, cA, cB = await _http_pair()
+    try:
+        cont = (await cA.post("/contractors", json={"name":"CX","mobile":"","notes":""})).json()
+        r_ok = await cA.post("/contractor-visits", json={"contractor_id":cont["id"],"date":"2026-01-01","workers_count":3})
+        assert r_ok.status_code == 200, r_ok.text
+        r_bad = await cB.post("/contractor-visits", json={"contractor_id":cont["id"],"date":"2026-01-02","workers_count":9})
+        assert r_bad.status_code == 404, r_bad.text
+        stray = await db.contractor_visits.find_one({"user_id": uidB})
+        assert stray is None
+        print("58 contractor visit ownership ✓  Own → 200; unowned → 404; no stray row")
+    finally:
+        await cA.aclose(); await cB.aclose()
+        await _wipe_user(uidA); await _wipe_user(uidB)
+
+
+async def test_59_contractor_payment_ownership_required():
+    """Issue 3: POST /contractor-payments with unowned contractor_id → 404, no row created."""
+    uidA, uidB, cA, cB = await _http_pair()
+    try:
+        cont = (await cA.post("/contractors", json={"name":"CX","mobile":"","notes":""})).json()
+        r_ok = await cA.post("/contractor-payments", json={"contractor_id":cont["id"],"date":"2026-01-05","amount":500,"method":"cash"})
+        assert r_ok.status_code == 200, r_ok.text
+        r_bad = await cB.post("/contractor-payments", json={"contractor_id":cont["id"],"date":"2026-01-06","amount":9999,"method":"cash"})
+        assert r_bad.status_code == 404, r_bad.text
+        stray = await db.contractor_payments.find_one({"user_id": uidB})
+        assert stray is None
+        print("59 contractor payment ownership ✓  Own → 200; unowned → 404; no stray row")
+    finally:
+        await cA.aclose(); await cB.aclose()
+        await _wipe_user(uidA); await _wipe_user(uidB)
+
+
+async def test_60_contractor_return_ownership_required():
+    """Issue 4: POST /contractor-returns with unowned contractor_id → 404, no row created."""
+    uidA, uidB, cA, cB = await _http_pair()
+    try:
+        cont = (await cA.post("/contractors", json={"name":"CX","mobile":"","notes":""})).json()
+        r_ok = await cA.post("/contractor-returns", json={"contractor_id":cont["id"],"date":"2026-01-15","amount":100,"method":"cash"})
+        assert r_ok.status_code == 200, r_ok.text
+        r_bad = await cB.post("/contractor-returns", json={"contractor_id":cont["id"],"date":"2026-01-16","amount":9999,"method":"cash"})
+        assert r_bad.status_code == 404, r_bad.text
+        stray = await db.contractor_returns.find_one({"user_id": uidB})
+        assert stray is None
+        print("60 contractor return ownership ✓  Own → 200; unowned → 404; no stray row")
+    finally:
+        await cA.aclose(); await cB.aclose()
+        await _wipe_user(uidA); await _wipe_user(uidB)
+
+
+async def test_61_worker_delete_ownership_404():
+    """Issue 5: DELETE /workers/{id} with unowned id → 404; A's worker + ledger untouched."""
+    uidA, uidB, cA, cB = await _http_pair()
+    try:
+        wA = (await cA.post("/workers", json={"name":"A","mobile":"","skill":"","daily_rate":500,"worker_type":"regular"})).json()
+        await cA.post("/attendance", json={"worker_id":wA["id"],"date":"2026-01-01","status":"present"})
+        r_bad = await cB.delete(f"/workers/{wA['id']}")
+        assert r_bad.status_code == 404, r_bad.text
+        # A's worker + ledger still intact
+        led = (await cA.get(f"/ledger/{wA['id']}")).json()
+        assert led["total_earned"] == 500.0, led
+        # A can delete own worker
+        r_own = await cA.delete(f"/workers/{wA['id']}")
+        assert r_own.status_code == 200, r_own.text
+        print("61 worker DELETE ownership ✓  B → 404 no-op; A → 200; A's data untouched during B's attempt")
+    finally:
+        await cA.aclose(); await cB.aclose()
+        await _wipe_user(uidA); await _wipe_user(uidB)
+
+
+async def test_62_owner_operations_still_work():
+    """Ensure the 5 defensive 404s did not accidentally break owner-side flows.
+       User A creates worker + contractor, does every op, verifies /ledger totals."""
+    uidA, uidB, cA, cB = await _http_pair()
+    try:
+        w = (await cA.post("/workers", json={"name":"A","mobile":"","skill":"","daily_rate":1000,"worker_type":"regular"})).json()
+        cn = (await cA.post("/contractors", json={"name":"CA","mobile":"","notes":""})).json()
+        # Worker ops
+        for r in (await cA.post("/attendance", json={"worker_id":w["id"],"date":"2026-02-01","status":"present"}),
+                  await cA.post("/attendance", json={"worker_id":w["id"],"date":"2026-02-02","status":"half_day","manual_wage":350}),
+                  await cA.post("/attendance", json={"worker_id":w["id"],"date":"2026-02-03","status":"overtime","overtime_amount":150}),
+                  await cA.post("/advances", json={"worker_id":w["id"],"date":"2026-02-05","amount":500,"method":"cash"}),
+                  await cA.post("/returns",  json={"worker_id":w["id"],"date":"2026-02-06","amount":200,"method":"cash"})):
+            assert r.status_code == 200, r.text
+        # Contractor ops
+        for r in (await cA.post("/contractor-visits",   json={"contractor_id":cn["id"],"date":"2026-02-10","workers_count":2}),
+                  await cA.post("/contractor-payments", json={"contractor_id":cn["id"],"date":"2026-02-11","amount":800,"method":"cash"}),
+                  await cA.post("/contractor-returns",  json={"contractor_id":cn["id"],"date":"2026-02-12","amount":100,"method":"cash"})):
+            assert r.status_code == 200, r.text
+        led = (await cA.get(f"/ledger/{w['id']}")).json()
+        # Total earned = 1000 (present) + 350 (half manual) + 1150 (OT bonus) = 2500
+        assert led["total_earned"] == 2500.0, led
+        assert led["net_advance"] == 300.0, led  # 500 - 200
+        assert led["final_balance"] == 2200.0, led  # 2500 - 300
+        cl = (await cA.get(f"/contractors/{cn['id']}/ledger")).json()
+        assert cl["net_paid"] == 700.0 and cl["final_balance"] == -700.0, cl
+        # PDF for OWN worker still works
+        pdf = await cA.get(f"/reports/pdf?worker_id={w['id']}")
+        assert pdf.status_code == 200 and pdf.headers["content-type"] == "application/pdf"
+        print("62 owner flow intact ✓  worker=2500/2200, contractor=700; own PDF still 200")
+    finally:
+        await cA.aclose(); await cB.aclose()
+        await _wipe_user(uidA); await _wipe_user(uidB)
+
 
 
 async def main():
     failed = 0
+    TESTS = [
+        test_01_earned_only,
+        test_02_advance_only,
+        test_03_earned_plus_advance,
+        test_04_earned_plus_advance_plus_return,
+        test_05_exact_settlement,
+        test_06_settlement_with_outstanding_advance,
+        test_07_adjust_advance_gt_earned,
+        test_08_adjust_advance_lt_earned,
+        test_09_actual_paid_gt_earned,
+        test_10_multiple_advances,
+        test_11_multiple_returns,
+        test_12_multiple_settlement_periods,
+        test_13_settlement_then_new_attendance,
+        test_14_undo_settlement_actual_paid,
+        test_14b_undo_settlement_adjust,
+        test_15_full_year_history,
+        test_16_month_history,
+        test_17_pre_settlement_history,
+        test_18_pdf_excel_consistency,
+        test_19_cross_user_isolation,
+        test_20_ledger_vs_worker_history_consistency,
+        test_21_multi_worker_isolation,
+        test_22_advance_after_settlement,
+        test_23_return_before_settlement,
+        test_24_absent_days_dont_earn,
+        test_25_half_day_and_overtime,
+        test_26_dashboard_pending_wage_matches_workers_sum,
+        test_27_dashboard_excludes_workers_without_advance,
+        test_28_ownership_rejection_advance,
+        test_29_ownership_rejection_return_and_attendance,
+        test_30_reports_use_same_final_balance,
+        test_31_repeated_settle_new_period,
+        test_32_year_month_filter_stable_reload,
+        test_33_wage_change_preserves_history,
+        test_34_triple_wage_change,
+        test_35_wage_change_without_new_work,
+        test_36_legacy_row_fallback,
+        test_37_settlement_across_wage_change,
+        test_38_user_isolation_on_wage_change,
+        test_39_e2e_http_wage_snapshot,
+        test_40_contractor_lifetime_net_paid,
+        test_41_contractor_settle_zeros_balance,
+        test_42_contractor_full_year_history_shows_settle,
+        test_43_contractor_partial_return_no_settle,
+        test_44_contractor_user_isolation,
+        test_45_contractor_settle_never_leaks_into_worker_totals,
+        test_46_dashboard_contractor_pending_direction,
+        test_48_half_day_manual_wage_used_verbatim,
+        test_49_half_day_no_manual_falls_back,
+        test_50_wage_edit_does_not_rewrite_manual_wage,
+        test_51_overtime_amount_used_verbatim,
+        test_52_wage_edit_does_not_rewrite_overtime_amount,
+        test_53_legacy_overtime_hours_unchanged,
+        test_54_pdf_excel_reflect_manual_values,
+        test_55_full_year_history_reflects_manual_values,
+        test_56_e2e_http_attendance_manual_flow,
+        test_57_worker_pdf_excel_reject_unowned_worker_id,
+        test_58_contractor_visit_ownership_required,
+        test_59_contractor_payment_ownership_required,
+        test_60_contractor_return_ownership_required,
+        test_61_worker_delete_ownership_404,
+        test_62_owner_operations_still_work,
+    ]
     for t in TESTS:
         try:
             await t()

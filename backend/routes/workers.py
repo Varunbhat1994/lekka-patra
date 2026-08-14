@@ -81,7 +81,11 @@ async def update_worker(worker_id: str, w: WorkerIn, user: dict = Depends(requir
 
 @router.delete("/workers/{worker_id}")
 async def delete_worker(worker_id: str, user: dict = Depends(require_write_access)):
-    await db.workers.delete_one({"id": worker_id, "user_id": user["user_id"]})
+    # Ownership-scoped delete. If nothing matched under the caller's
+    # user_id, 404 instead of a misleading 200 OK.
+    res = await db.workers.delete_one({"id": worker_id, "user_id": user["user_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Worker not found")
     await db.attendance.delete_many({"worker_id": worker_id, "user_id": user["user_id"]})
     await db.advances.delete_many({"worker_id": worker_id, "user_id": user["user_id"]})
     await db.advance_returns.delete_many({"worker_id": worker_id, "user_id": user["user_id"]})
