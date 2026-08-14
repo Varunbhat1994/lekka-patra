@@ -55,9 +55,6 @@ export default function WorkerHistory() {
   }, [led]);
 
   const monthsSorted = Object.keys(byMonth).sort().reverse();
-  const daysWorked = led?.days_worked ?? 0;
-  const present = (led?.attendance||[]).filter(a => a.status === "present").length;
-  const absent  = (led?.attendance||[]).filter(a => a.status === "absent").length;
   const netAdv = led?.net_advance ?? 0;
   const finalBal = Number(led?.final_balance ?? 0);
   const owesDir = finalBal > 0
@@ -103,14 +100,9 @@ export default function WorkerHistory() {
           </Button>
         </div>
 
-        {/* KPI cards */}
-        <div className="grid grid-cols-3 gap-2">
-          <Kpi label={lang==="kn"?"ಕೆಲಸ ದಿನ":"Work Days"} value={daysWorked} />
-          <Kpi label={lang==="kn"?"ಹಾಜರು":"Present"} value={present} tone="primary" />
-          <Kpi label={lang==="kn"?"ಗೈರುಹಾಜರು":"Absent"} value={absent} tone="danger" />
-        </div>
+        {/* KPI cards — single Present + Days Worked pair. */}
         <div className="grid grid-cols-2 gap-2">
-          <Kpi label={lang==="kn"?"ಹಾಜರಿ ದಿನಗಳು":"Present"} value={led?.present_count ?? 0} />
+          <Kpi label={lang==="kn"?"ಹಾಜರಿ ದಿನಗಳು":"Present"} value={led?.present_count ?? 0} tone="primary" />
           <Kpi label={lang==="kn"?"ಕೆಲಸದ ದಿನಗಳು":"Days Worked"} value={led?.days_worked ?? 0} />
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ಗಳಿಕೆ":"Total Earned"} value={`₹${led?.total_earned ?? 0}`} tone="primary" />
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ಮುಂಗಡ":"Total Advances"} value={`₹${led?.total_advance ?? 0}`} />

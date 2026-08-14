@@ -1,0 +1,32 @@
+{
+  "summary": "Frontend-only UI verification of Worker History KPI grid fix (removal of duplicate 'Work Days' 3-col row). Seeded ephemeral user via Motor (same _seed pattern as final_freeze_verification.py) with session_token cookie, then drove real UI at REACT_APP_BACKEND_URL through Playwright. Created data via write-path APIs: 1 present + 1 half_day + 1 overtime@150 on three Jan-2026 dates for a Rs 500/day worker, then Advance Rs 1000, Return Rs 300, Mark Settled (mode=adjust_advance). Confirmed on /history/worker/{id}: KPI grid renders EXACTLY ONE 'Present' cell (value 3, from backend present_count) and EXACTLY ONE 'Days Worked' cell (value 2.5, from backend days_worked). NO 'Work Days' label anywhere on page (verified via body.innerText.count('Work Days')===0). Chronological event list shows attendance rows for all 3 dates plus rows labeled 'Advance', 'Return', 'Return (Settlement)', 'Settlement' — direction wording is user-facing English, not banking terms. Month filter works (Jan shows records; Feb shows 'No records in this period' + all-zero KPIs). PDF button downloads a real PDF for the selected range: full-year PDF contains headers 'Present'+'Days Worked' and values 3/2.5, and body row 'Rs 500 + Rs 150 (OT) = Rs 650'; Feb-only PDF is properly scoped to 2026-02-01..2026-02-28 with all zeros and 'Balanced'. Neither PDF contains the string 'Work Days'. Negative-balance direction: after pushing final_balance to -2800, UI shows 'WORKER OWES YOU Rs 2800' (never a bare -Rs); PDF header shows 'Worker owes you Rs 2800.0'. Positive-balance case earlier showed 'YOU OWE WORKER Rs 700'. Backend accounting regression suites not re-run this iteration — prior iteration_12 already confirmed all 62 audit tests + 4 other suites green; per review_request this iteration is UI-only. Contractor pages untouched (not visited).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_present_vs_days_worked.py",
+    "/app/test_reports/pytest/iter12_pvd.xml",
+    ".screenshots/wh_kpi_full.png",
+    ".screenshots/wh_jan.png",
+    ".screenshots/wh_negative.png"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "WorkerHistory.jsx L104-111: single 2-col grid is now the ONLY KPI block; old 3-col Work Days/Present/Absent row is fully removed. Present cell wired to led.present_count and Days Worked to led.days_worked — matches spec.",
+    "L60-64 owesDir logic correctly disambiguates finalBal>0/<0/==0 with i18n-safe labels and never emits a bare negative rupee amount — visually verified on both positive and negative final_balance cases.",
+    "L68 downloadPDF passes rangeQ() so year+month selectors flow into the backend PDF endpoint — Feb PDF confirmed month-scoped (Period line: 2026-02-01 to 2026-02-28).",
+    "Nit (pre-existing, not this fix): 'Total Returns' KPI includes auto-adjust settlement returns (in test: 300 manual + 1400 settlement = 1700, then + 1500 = 3200). This is arithmetically correct but may confuse an owner glancing at 'Total Returns' — consider labeling as 'Returns incl. settlement adjust' or splitting. Non-blocking; behavior is unchanged from previous iterations.",
+    "Nit (pre-existing): 'Return (Settlement)' row is generated from an auto-adjust; direction wording is fine but the notes 'Auto-adjust from advance on Mark Settled' is truncated on 390px viewport due to flex-1 truncate. Acceptable on mobile; expands on wider screens."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not re-run this iteration)", "frontend": "100%"},
+  "test_credentials": "Seeded via Motor: user_id=ui_faa3cab7, session_token=99bc0dbb...b0328 (cleaned up after test). Same _seed pattern as /app/backend/tests/final_freeze_verification.py.",
+  "seed_data_creation": "Created and torn down: 1 user, 1 session, 1 worker (UITestW @ Rs500), 3 attendance rows (2026-01-05 present, -06 half_day, -07 overtime@150), 2 advances (Rs1000, Rs5000), 3 returns (Rs300 manual, Rs1400 auto-adjust, Rs1500 manual), 1 settlement. All deleted post-test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Auth: set cookie session_token (httpOnly, secure, sameSite=None) on domain field-crew-log-1.preview.emergentagent.com after first navigation to root; browser then uses axios.defaults.withCredentials=true for all /api calls. Frontend route for worker history is /history/worker/:id (NOT /worker/:id/history — that path silently redirects to Dashboard). The seeded user must have district+onboarding_completed set on the users doc, otherwise WELCOME/onboarding page intercepts the route. WorkerHistory KPI grid is now a single 2-col x 3-row block (Present/Days Worked / Total Earned/Total Advances / Total Returns/Total Settled); any future testing agent should assert '.grid.grid-cols-2' innerText contains 'PRESENT' exactly once and 'DAYS WORKED' exactly once and does NOT contain 'WORK DAYS'.",
+  "rca of the issue": "Not applicable — no bug reproduced. The UI-only fix (removal of duplicate 3-col KPI row) is verified working end-to-end via live preview. Backend present_count field (added in iteration 12) is correctly consumed by the WorkerHistory Present KPI cell, and days_worked feeds the Days Worked KPI cell. No conflicting values, no 'Work Days' label leak."
+}
