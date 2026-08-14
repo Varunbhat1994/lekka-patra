@@ -27,13 +27,35 @@ from typing import Optional
 from core.database import db
 
 
-def _wage_units(status: str, overtime_hours: float, daily_rate: float) -> float:
+def _wage_units(
+    status: str,
+    overtime_hours: float,
+    daily_rate: float,
+    *,
+    manual_wage: Optional[float] = None,
+    overtime_amount: Optional[float] = None,
+) -> float:
+    """Compute the monetary earning for one attendance row.
+
+    Priority order — most explicit first:
+        · manual_wage      → used verbatim (any status where the owner
+                              typed an override; typically half_day)
+        · overtime_amount  → status='overtime' → daily_rate + amount
+        · overtime_hours   → status='overtime' → legacy formula
+        · half_day         → 0.5 × daily_rate  (legacy fallback)
+        · present          → daily_rate
+        · anything else    → 0.0
+    """
+    if manual_wage is not None:
+        return float(manual_wage)
     if status == "present":
         return daily_rate
     if status == "half_day":
         return daily_rate * 0.5
     if status == "overtime":
-        # 1 day + (overtime_hours / 8) day equivalent
+        if overtime_amount is not None:
+            return daily_rate + float(overtime_amount)
+        # legacy hours-based formula preserved verbatim
         return daily_rate + daily_rate * (overtime_hours / 8.0)
     return 0.0
 
@@ -66,14 +88,26 @@ async def compute_worker_ledger(
         rate = a.get("daily_rate_snapshot")
         if rate is None:
             rate = worker["daily_rate"]
-        u = _wage_units(a["status"], a.get("overtime_hours", 0), rate)
+        u = _wage_units(
+            a["status"],
+            a.get("overtime_hours", 0),
+            rate,
+            manual_wage=a.get("manual_wage"),
+            overtime_amount=a.get("overtime_amount"),
+        )
         total_earned += u
         if a["status"] == "present":
             days_worked += 1
         elif a["status"] == "half_day":
             days_worked += 0.5
         elif a["status"] == "overtime":
-            days_worked += 1 + a.get("overtime_hours", 0) / 8.0
+            # Amount-based overtime = a full day + monetary bonus (no
+            # fractional-day inflation). Legacy hours-based overtime
+            # keeps its "1 + hours/8" day count for backward compat.
+            if a.get("overtime_amount") is not None:
+                days_worked += 1
+            else:
+                days_worked += 1 + a.get("overtime_hours", 0) / 8.0
 
     # Advances and returns.
     # For CURRENT-cycle mode (no explicit start/end): they are an

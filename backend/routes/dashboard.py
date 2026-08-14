@@ -38,7 +38,11 @@ async def dashboard(user: dict = Depends(get_current_user)):
         w = workers_by_id.get(a["worker_id"])
         if not w: continue
         rate = a.get("daily_rate_snapshot") or w["daily_rate"]
-        est_wage_today += _wage_units(a["status"], a.get("overtime_hours", 0), rate)
+        est_wage_today += _wage_units(
+            a["status"], a.get("overtime_hours", 0), rate,
+            manual_wage=a.get("manual_wage"),
+            overtime_amount=a.get("overtime_amount"),
+        )
 
     # Aggregate current-cycle balances by summing per-worker ledgers so
     # dashboard totals match what the Ledger UI shows for each worker.
@@ -64,7 +68,11 @@ async def dashboard(user: dict = Depends(get_current_user)):
         month = a["date"][:7]
         crop = a.get("field_crop") or "Uncategorized"
         rate = a.get("daily_rate_snapshot") or w["daily_rate"]
-        monthly[month][crop] += _wage_units(a["status"], a.get("overtime_hours", 0), rate)
+        monthly[month][crop] += _wage_units(
+            a["status"], a.get("overtime_hours", 0), rate,
+            manual_wage=a.get("manual_wage"),
+            overtime_amount=a.get("overtime_amount"),
+        )
     # Convert to list
     months_sorted = sorted(monthly.keys())[-6:]
     chart = []

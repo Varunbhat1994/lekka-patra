@@ -1170,6 +1170,208 @@ async def test_46_dashboard_contractor_pending_direction():
         await _cleanup_contractor(uid)
 
 
+# ==================================================================
+# ATTENDANCE — half-day manual wage & overtime manual amount (48–56)
+# ==================================================================
+
+async def _att_full(user_id, wid, date, status, *, rate=None,
+                    manual_wage=None, overtime_amount=None, ot_hours=0):
+    doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "worker_id": wid,
+        "date": date,
+        "status": status,
+        "overtime_hours": ot_hours,
+    }
+    if rate is not None:
+        doc["daily_rate_snapshot"] = float(rate)
+    if manual_wage is not None:
+        doc["manual_wage"] = float(manual_wage)
+    if overtime_amount is not None:
+        doc["overtime_amount"] = float(overtime_amount)
+    await db.attendance.insert_one(doc)
+
+
+async def test_48_half_day_manual_wage_used_verbatim():
+    """Manual half-day amount 350 must override the 0.5×rate default."""
+    uid = f"t48_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=600)
+        await _att_full(uid, w["id"], "2026-01-01", "half_day", rate=600, manual_wage=350)
+        led = await compute_worker_ledger(uid, w)
+        assert led["total_earned"] == 350.0, led
+        print("48 half-day manual ₹350 ✓  Uses manual, not 300")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_49_half_day_no_manual_falls_back():
+    """Legacy half_day row without manual_wage → 0.5 × snapshot rate."""
+    uid = f"t49_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=600)
+        await _att_full(uid, w["id"], "2026-01-01", "half_day", rate=600)  # no manual
+        led = await compute_worker_ledger(uid, w)
+        assert led["total_earned"] == 300.0, led  # 0.5 × 600
+        print("49 half-day no manual ✓  Falls back to ₹300 (0.5 × 600)")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_50_wage_edit_does_not_rewrite_manual_wage():
+    """Manual half-day amount stays fixed even after worker.daily_rate changes."""
+    uid = f"t50_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=600)
+        await _att_full(uid, w["id"], "2026-01-01", "half_day", rate=600, manual_wage=350)
+        await db.workers.update_one({"id": w["id"]}, {"$set": {"daily_rate": 999}})
+        w_new = await db.workers.find_one({"id": w["id"]}, {"_id": 0})
+        led = await compute_worker_ledger(uid, w_new)
+        assert led["total_earned"] == 350.0, led
+        print("50 wage edit vs manual_wage ✓  Historical ₹350 unchanged")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_51_overtime_amount_used_verbatim():
+    """Overtime amount ₹150 → earning = rate 600 + 150 = 750, days_worked=1."""
+    uid = f"t51_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=600)
+        await _att_full(uid, w["id"], "2026-01-01", "overtime", rate=600, overtime_amount=150)
+        led = await compute_worker_ledger(uid, w)
+        assert led["total_earned"] == 750.0, led
+        assert led["days_worked"] == 1.0, led  # amount-based = full day, no fractional inflation
+        print("51 overtime manual ₹150 ✓  Earning=750, days_worked=1")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_52_wage_edit_does_not_rewrite_overtime_amount():
+    """Manual overtime amount stays fixed even after worker.daily_rate changes."""
+    uid = f"t52_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=600)
+        await _att_full(uid, w["id"], "2026-01-01", "overtime", rate=600, overtime_amount=150)
+        await db.workers.update_one({"id": w["id"]}, {"$set": {"daily_rate": 5000}})
+        w_new = await db.workers.find_one({"id": w["id"]}, {"_id": 0})
+        led = await compute_worker_ledger(uid, w_new)
+        assert led["total_earned"] == 750.0, led  # still 600 (snapshot) + 150
+        print("52 wage edit vs overtime_amount ✓  Historical ₹750 unchanged")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_53_legacy_overtime_hours_unchanged():
+    """Legacy overtime row (no overtime_amount) → daily + rate × hours/8."""
+    uid = f"t53_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=800)
+        # 4 overtime hours → 800 + 800 × 0.5 = 1200 ; days = 1.5
+        await _att_full(uid, w["id"], "2026-01-01", "overtime", rate=800, ot_hours=4)
+        led = await compute_worker_ledger(uid, w)
+        assert led["total_earned"] == 1200.0, led
+        assert led["days_worked"] == 1.5, led
+        print("53 legacy overtime_hours ✓  4h → ₹1200, days=1.5")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_54_pdf_excel_reflect_manual_values():
+    """PDF/Excel totals inherit from compute_worker_ledger — so the
+       total_earned column MUST reflect the manual values automatically."""
+    uid = f"t54_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=600)
+        await _att_full(uid, w["id"], "2026-01-01", "half_day", rate=600, manual_wage=350)
+        await _att_full(uid, w["id"], "2026-01-02", "overtime", rate=600, overtime_amount=150)
+        led = await compute_worker_ledger(uid, w)
+        # Total = 350 (half) + 750 (OT) = 1100
+        assert led["total_earned"] == 1100.0, led
+        print("54 PDF/Excel inherit ✓  Ledger total = ₹1100 → reports show same")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_55_full_year_history_reflects_manual_values():
+    """History mode must also honor manual amounts."""
+    uid = f"t55_{uuid.uuid4()}"
+    try:
+        w = await _mk_worker(uid, wage=600)
+        await _att_full(uid, w["id"], "2026-05-15", "half_day", rate=600, manual_wage=350)
+        await _att_full(uid, w["id"], "2026-05-16", "overtime", rate=600, overtime_amount=200)
+        led = await compute_worker_ledger(uid, w, start="2026-01-01", end="2026-12-31")
+        assert led["total_earned"] == 350.0 + 800.0, led  # 350 + (600+200)
+        print("55 year history manuals ✓  Total = ₹1150 in windowed mode")
+    finally:
+        await _cleanup(uid)
+
+
+async def test_56_e2e_http_attendance_manual_flow():
+    """End-to-end: POST /attendance with manual_wage + overtime_amount
+       stored correctly; UPDATE preserves them; validation rejects
+       negatives; legacy rows without new fields still work."""
+    from datetime import datetime, timezone, timedelta
+    import httpx
+    BASE = os.environ.get("REACT_APP_BACKEND_URL", "https://field-crew-log-1.preview.emergentagent.com") + "/api"
+    uid = f"t56_{uuid.uuid4().hex[:8]}"
+    now = datetime.now(timezone.utc)
+    await db.users.insert_one({
+        "user_id": uid, "email": f"{uid}@t.com", "mobile": "9000056000",
+        "name": "T56", "role": "owner",
+        "subscription_active": True,
+        "subscription_expires_at": (now + timedelta(days=365)).isoformat(),
+        "trial_starts_at": now.isoformat(),
+        "trial_expires_at": (now + timedelta(days=365)).isoformat(),
+        "created_at": now.isoformat(),
+    })
+    token = uuid.uuid4().hex + uuid.uuid4().hex
+    await db.user_sessions.insert_one({
+        "session_token": token, "user_id": uid,
+        "expires_at": (now + timedelta(hours=2)).isoformat(),
+        "created_at": now.isoformat(),
+    })
+    h = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(base_url=BASE, headers=h, timeout=30, verify=False) as c:
+            w = (await c.post("/workers", json={"name":"W","mobile":"","skill":"","daily_rate":600,"worker_type":"regular"})).json()
+            # Half-day manual ₹350
+            r = await c.post("/attendance", json={
+                "worker_id": w["id"], "date": "2026-01-01",
+                "status": "half_day", "manual_wage": 350,
+            })
+            assert r.status_code == 200, r.text
+            # Overtime manual ₹150
+            r = await c.post("/attendance", json={
+                "worker_id": w["id"], "date": "2026-01-02",
+                "status": "overtime", "overtime_amount": 150,
+            })
+            assert r.status_code == 200, r.text
+            # Update existing half_day row (₹350 → ₹400) — must UPDATE, not duplicate
+            r = await c.post("/attendance", json={
+                "worker_id": w["id"], "date": "2026-01-01",
+                "status": "half_day", "manual_wage": 400,
+            })
+            assert r.status_code == 200, r.text
+            rows = (await c.get(f"/attendance?date=2026-01-01")).json()
+            assert len(rows) == 1 and rows[0]["manual_wage"] == 400, rows
+            # Validation: negative manual_wage rejected
+            r = await c.post("/attendance", json={
+                "worker_id": w["id"], "date": "2026-01-03",
+                "status": "half_day", "manual_wage": -10,
+            })
+            assert r.status_code == 400, r.text
+            # Ledger totals: 400 (updated half_day) + 750 (OT 600+150) = 1150
+            led = (await c.get(f"/ledger/{w['id']}")).json()
+            assert led["total_earned"] == 1150.0, led
+            print(f"56 HTTP e2e attendance manuals ✓  Ledger total = ₹1150; validation blocks negatives")
+    finally:
+        for coll in ("users","user_sessions","workers","attendance","advances","advance_returns","settlements"):
+            await db[coll].delete_many({"user_id": uid})
+        await db.user_sessions.delete_many({"session_token": token})
+
+
 TESTS = [
     test_01_earned_only,
     test_02_advance_only,
@@ -1218,6 +1420,15 @@ TESTS = [
     test_44_contractor_user_isolation,
     test_45_contractor_settle_never_leaks_into_worker_totals,
     test_46_dashboard_contractor_pending_direction,
+    test_48_half_day_manual_wage_used_verbatim,
+    test_49_half_day_no_manual_falls_back,
+    test_50_wage_edit_does_not_rewrite_manual_wage,
+    test_51_overtime_amount_used_verbatim,
+    test_52_wage_edit_does_not_rewrite_overtime_amount,
+    test_53_legacy_overtime_hours_unchanged,
+    test_54_pdf_excel_reflect_manual_values,
+    test_55_full_year_history_reflects_manual_values,
+    test_56_e2e_http_attendance_manual_flow,
 ]
 
 

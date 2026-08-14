@@ -40,6 +40,13 @@ class Attendance(BaseModel):
     date: str  # YYYY-MM-DD
     status: str  # present, half_day, absent, overtime
     overtime_hours: float = 0
+    # Optional manual overtime BONUS amount in rupees. When present,
+    # earning for an overtime day = daily_rate_snapshot + overtime_amount.
+    # When absent, legacy overtime_hours formula is used.
+    overtime_amount: Optional[float] = None
+    # Optional manual half-day wage in rupees. When present, earning for
+    # a half_day = manual_wage. When absent, legacy 0.5 × rate is used.
+    manual_wage: Optional[float] = None
     field_crop: Optional[str] = ""
     description: Optional[str] = ""
     # Wage rate snapshotted at write time. Locks the wage that applied
@@ -56,6 +63,8 @@ class AttendanceIn(BaseModel):
     date: str
     status: str
     overtime_hours: float = 0
+    overtime_amount: Optional[float] = None
+    manual_wage: Optional[float] = None
     field_crop: Optional[str] = ""
     description: Optional[str] = ""
 
@@ -89,6 +98,20 @@ async def upsert_attendance(a: AttendanceIn, user: dict = Depends(require_write_
     )
     if not worker:
         raise HTTPException(404, "Worker not found")
+    # Validation for optional manual amounts: non-negative, and capped at
+    # a sensible upper bound (10× the worker's current daily rate, min 100000)
+    # to prevent stray taps from creating nonsense records.
+    max_cap = max(100000.0, float(worker.get("daily_rate", 0)) * 10)
+    if a.manual_wage is not None:
+        if a.manual_wage < 0:
+            raise HTTPException(400, "manual_wage cannot be negative")
+        if a.manual_wage > max_cap:
+            raise HTTPException(400, f"manual_wage exceeds allowed maximum ({max_cap})")
+    if a.overtime_amount is not None:
+        if a.overtime_amount < 0:
+            raise HTTPException(400, "overtime_amount cannot be negative")
+        if a.overtime_amount > max_cap:
+            raise HTTPException(400, f"overtime_amount exceeds allowed maximum ({max_cap})")
     # Upsert per (worker_id, date). NOTE: `daily_rate_snapshot` is written
     # ONLY on the first insert for this (worker_id, date). If the row
     # already exists, we update fields the client sent (status, hours,
