@@ -17,8 +17,6 @@ import Ledger from "@/pages/Ledger";
 import WorkerHistory from "@/pages/WorkerHistory";
 import ContractorHistory from "@/pages/ContractorHistory";
 import Settings from "@/pages/Settings";
-import Paywall from "@/pages/Paywall";
-import { PaymentSuccess, PaymentCancel } from "@/pages/PaymentResult";
 
 function Protected({ children, requireProfile = true }) {
   const { user, loading } = useApp();
@@ -57,9 +55,6 @@ function AppRouter() {
       <Route path="/history/worker/:id" element={<Protected><WorkerHistory /></Protected>} />
       <Route path="/history/contractor/:id" element={<Protected><ContractorHistory /></Protected>} />
       <Route path="/settings" element={<Protected><Settings /></Protected>} />
-      <Route path="/paywall" element={<Protected><Paywall /></Protected>} />
-      <Route path="/payment/success" element={<Protected><PaymentSuccess /></Protected>} />
-      <Route path="/payment/cancel" element={<Protected><PaymentCancel /></Protected>} />
       <Route path="/owner" element={<Protected><OwnerPortal /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

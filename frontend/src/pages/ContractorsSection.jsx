@@ -155,7 +155,7 @@ export default function ContractorsSection() {
 function ContractorDetail({ id, onClose }) {
   const { API, user, lang, t } = useApp();
   const nav = useNavigate();
-  const locked = user?.access?.locked;
+  const locked = false;
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("visits");
   const [visitForm, setVisitForm] = useState({ date: today(), workers_count: "", field_crop: "", notes: "" });
