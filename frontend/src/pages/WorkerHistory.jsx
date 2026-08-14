@@ -110,6 +110,8 @@ export default function WorkerHistory() {
           <Kpi label={lang==="kn"?"ಗೈರುಹಾಜರು":"Absent"} value={absent} tone="danger" />
         </div>
         <div className="grid grid-cols-2 gap-2">
+          <Kpi label={lang==="kn"?"ಹಾಜರಿ ದಿನಗಳು":"Present"} value={led?.present_count ?? 0} />
+          <Kpi label={lang==="kn"?"ಕೆಲಸದ ದಿನಗಳು":"Days Worked"} value={led?.days_worked ?? 0} />
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ಗಳಿಕೆ":"Total Earned"} value={`₹${led?.total_earned ?? 0}`} tone="primary" />
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ಮುಂಗಡ":"Total Advances"} value={`₹${led?.total_advance ?? 0}`} />
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ವಾಪಸ್":"Total Returns"} value={`₹${led?.total_returned ?? 0}`} />

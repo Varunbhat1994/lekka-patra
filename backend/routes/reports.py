@@ -64,10 +64,10 @@ async def report_pdf(
         else:
             story.append(Paragraph("<b>Balanced</b>", styles["Normal"]))
         summary = [
-            ["Days Worked", "Total Earned", "Advance", "Returned", "Settled", "Earned (period)", "Balance"],
-            [led["days_worked"], f"Rs {led['total_earned']}",
+            ["Present", "Days Worked", "Total Earned", "Advance", "Returned", "Settled", "Balance"],
+            [led.get("present_count", 0), led["days_worked"], f"Rs {led['total_earned']}",
              f"Rs {led['total_advance']}", f"Rs {led['total_returned']}",
-             f"Rs {led.get('total_settled', 0)}", f"Rs {led['pending']}",
+             f"Rs {led.get('total_settled', 0)}",
              f"Rs {led.get('final_balance', 0)}"],
         ]
         t = Table(summary, hAlign="LEFT")

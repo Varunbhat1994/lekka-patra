@@ -80,6 +80,10 @@ async def compute_worker_ledger(
     att = await db.attendance.find(q, {"_id": 0}).sort("date", -1).to_list(10000)
     total_earned = 0.0
     days_worked = 0.0
+    # Distinct attendance-date count (Present/Half-day/Overtime dates).
+    # Kept SEPARATE from days_worked (wage-unit equivalent) so the UI
+    # can show both without conflating them.
+    present_dates: set = set()
     # Enrich every attendance row with per-row derived components so
     # UI + PDF never recompute wage themselves (RULE 1 — single source
     # of truth). Fields written back onto the dict:
@@ -120,13 +124,16 @@ async def compute_worker_ledger(
         total_earned += final_amount
         if status == "present":
             days_worked += 1
+            present_dates.add(a["date"])
         elif status == "half_day":
             days_worked += 0.5
+            present_dates.add(a["date"])
         elif status == "overtime":
             if ot_amt is not None:
                 days_worked += 1
             else:
                 days_worked += 1 + ot_hrs / 8.0
+            present_dates.add(a["date"])
 
     # Advances and returns.
     # For CURRENT-cycle mode (no explicit start/end): they are an
@@ -180,6 +187,7 @@ async def compute_worker_ledger(
     return {
         "worker": worker,
         "days_worked": round(days_worked, 2),
+        "present_count": len(present_dates),
         "total_earned": round(total_earned, 2),
         "total_advance": round(total_advance, 2),
         "total_returned": round(total_returned, 2),
