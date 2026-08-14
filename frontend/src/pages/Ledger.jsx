@@ -16,6 +16,11 @@ export default function Ledger() {
   const { t, user, API, lang } = useApp();
   const nav = useNavigate();
   const locked = false;
+  // Match the Attendance/Workers warm peach background on this page.
+  useEffect(() => {
+    document.body.classList.add("reports-page");
+    return () => document.body.classList.remove("reports-page");
+  }, []);
   const [workers, setWorkers] = useState([]);
   const [ledgers, setLedgers] = useState({});
   const [selected, setSelected] = useState(null);
@@ -170,7 +175,7 @@ export default function Ledger() {
         </div>
 
         {/* Year / Month history filter — empty = current cycle */}
-        <div className="rounded-xl border border-border bg-card p-3 flex items-center gap-2" data-testid="history-filter">
+        <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-3 flex items-center gap-2" data-testid="history-filter">
           <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
             {lang === "kn" ? "ಇತಿಹಾಸ" : "History"}
           </div>
@@ -203,7 +208,7 @@ export default function Ledger() {
         </div>
 
         {workers.length === 0 && (
-          <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-2xl border border-dashed border-[hsl(28_40%_78%)] bg-white/60 p-8 text-center text-sm text-muted-foreground">
             {t("no_workers")}
           </div>
         )}
@@ -212,7 +217,7 @@ export default function Ledger() {
           {workers.map(w => {
             const l = ledgers[w.id];
             return (
-              <div key={w.id} data-testid={`ledger-row-${w.id}`} className="rounded-xl border border-border bg-card p-4 space-y-3">
+              <div key={w.id} data-testid={`ledger-row-${w.id}`} className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-4 space-y-3">
                 <div className="flex items-center gap-3">
                   <div className="h-10 w-10 rounded-full bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] grid place-items-center">
                     <User size={20} weight="duotone"/>

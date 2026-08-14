@@ -32,6 +32,11 @@ export default function ContractorHistory() {
   };
 
   useEffect(() => {
+    document.body.classList.add("reports-page");
+    return () => document.body.classList.remove("reports-page");
+  }, []);
+
+  useEffect(() => {
     (async () => {
       try {
         const r = await axios.get(`${API}/contractors/${id}/ledger${rangeQ()}`);
@@ -87,7 +92,7 @@ export default function ContractorHistory() {
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ಇತ್ಯರ್ಥ":"Total Settled"} value={`₹${led?.total_settled ?? 0}`} tone="accent" />
           <Kpi label={lang==="kn"?"ನಿವ್ವಳ ಪಾವತಿ":"Net Paid"} value={`₹${led?.net_paid ?? 0}`} />
         </div>
-        <div className="rounded-xl border border-border bg-card p-3" data-testid="contractor-balance-card">
+        <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-3" data-testid="contractor-balance-card">
           {(() => {
             const fb = Number(led?.final_balance ?? 0);
             if (fb > 0) {
@@ -120,7 +125,7 @@ export default function ContractorHistory() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-3 flex gap-2 items-center">
+        <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-3 flex gap-2 items-center">
           <select data-testid="hist-year" value={year} onChange={e=>{ setYear(parseInt(e.target.value)); setMonth(""); }}
             className="min-h-[36px] rounded-md border border-border bg-white px-2 text-sm flex-1">
             {years.map(y=><option key={y} value={y}>{y}</option>)}
@@ -133,7 +138,7 @@ export default function ContractorHistory() {
         </div>
 
         {monthsSorted.length === 0 && (
-          <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-2xl border border-dashed border-[hsl(28_40%_78%)] bg-white/60 p-8 text-center text-sm text-muted-foreground">
             {lang==="kn"?"ಈ ಅವಧಿಗೆ ಯಾವುದೇ ದಾಖಲೆ ಇಲ್ಲ":"No records in this period"}
           </div>
         )}
@@ -146,7 +151,7 @@ export default function ContractorHistory() {
           const mRet = g.ret.reduce((s,r)=>s+r.amount,0);
           const open = expanded[mKey] ?? true;
           return (
-            <div key={mKey} data-testid={`month-${mKey}`} className="rounded-xl border border-border bg-card overflow-hidden">
+            <div key={mKey} data-testid={`month-${mKey}`} className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm overflow-hidden">
               <button onClick={()=>setExpanded({...expanded,[mKey]:!open})} className="w-full flex items-center justify-between p-3 hover:bg-secondary/40">
                 <div className="font-semibold">{label}</div>
                 <div className="text-[11px] text-muted-foreground flex gap-2">
@@ -186,7 +191,7 @@ export default function ContractorHistory() {
 function Kpi({ label, value, tone }) {
   const t = tone==="primary" ? "text-[hsl(var(--primary))]" : tone==="accent" ? "text-[hsl(var(--accent))]" : "";
   return (
-    <div className="rounded-xl border border-border bg-card p-3">
+    <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-3">
       <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{label}</div>
       <div className={`text-lg font-bold mt-1 ${t}`}>{value}</div>
     </div>

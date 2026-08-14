@@ -33,6 +33,11 @@ export default function WorkerHistory() {
   };
 
   useEffect(() => {
+    document.body.classList.add("reports-page");
+    return () => document.body.classList.remove("reports-page");
+  }, []);
+
+  useEffect(() => {
     (async () => {
       try {
         const r = await axios.get(`${API}/ledger/${id}${rangeQ()}`);
@@ -109,13 +114,13 @@ export default function WorkerHistory() {
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ವಾಪಸ್":"Total Returns"} value={`₹${led?.total_returned ?? 0}`} />
           <Kpi label={lang==="kn"?"ಒಟ್ಟು ಇತ್ಯರ್ಥ":"Total Settled"} value={`₹${led?.total_settled ?? 0}`} tone="accent" />
         </div>
-        <div className="rounded-xl border border-border bg-card p-3" data-testid="net-advance-card">
+        <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-3" data-testid="net-advance-card">
           <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
             {lang==="kn" ? "ನಿವ್ವಳ ಮುಂಗಡ" : "Net Advance"}
           </div>
           <div className="text-lg font-semibold text-[hsl(var(--accent))] mt-1">₹{netAdv}</div>
         </div>
-        <div className="rounded-xl border border-border bg-card p-3" data-testid="balance-card">
+        <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-3" data-testid="balance-card">
           <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{owesDir.label}</div>
           <div className={`text-xl font-bold mt-1 ${owesDir.tone === "primary" ? "text-[hsl(var(--primary))]" : owesDir.tone === "accent" ? "text-[hsl(var(--accent))]" : "text-muted-foreground"}`}>
             ₹{owesDir.val}
@@ -123,7 +128,7 @@ export default function WorkerHistory() {
         </div>
 
         {/* Filter */}
-        <div className="rounded-xl border border-border bg-card p-3 flex gap-2 items-center">
+        <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-3 flex gap-2 items-center">
           <select data-testid="hist-year" value={year} onChange={e=>{ setYear(parseInt(e.target.value)); setMonth(""); }}
             className="min-h-[36px] rounded-md border border-border bg-white px-2 text-sm flex-1">
             {years.map(y=><option key={y} value={y}>{y}</option>)}
@@ -137,7 +142,7 @@ export default function WorkerHistory() {
 
         {/* Monthly sections */}
         {monthsSorted.length === 0 && (
-          <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-2xl border border-dashed border-[hsl(28_40%_78%)] bg-white/60 p-8 text-center text-sm text-muted-foreground">
             {lang==="kn"?"ಈ ಅವಧಿಗೆ ಯಾವುದೇ ದಾಖಲೆ ಇಲ್ಲ":"No records in this period"}
           </div>
         )}
@@ -152,7 +157,7 @@ export default function WorkerHistory() {
           const monthSettle = g.settle.reduce((s,x)=>s+(x.amount||0),0);
           const isOpen = expanded[mKey] ?? true;
           return (
-            <div key={mKey} data-testid={`month-${mKey}`} className="rounded-xl border border-border bg-card overflow-hidden">
+            <div key={mKey} data-testid={`month-${mKey}`} className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm overflow-hidden">
               <button onClick={()=>setExpanded({...expanded, [mKey]: !isOpen})}
                 className="w-full flex items-center justify-between p-3 hover:bg-secondary/40">
                 <div className="font-semibold">{mLabel}</div>
@@ -211,7 +216,7 @@ export default function WorkerHistory() {
 function Kpi({ label, value, tone }) {
   const toneCls = tone==="primary" ? "text-[hsl(var(--primary))]" : tone==="accent" ? "text-[hsl(var(--accent))]" : tone==="danger" ? "text-red-600" : "";
   return (
-    <div className="rounded-xl border border-border bg-card p-3">
+    <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-3">
       <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{label}</div>
       <div className={`text-lg font-bold mt-1 ${toneCls}`}>{value}</div>
     </div>

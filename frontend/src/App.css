@@ -36,7 +36,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
    so navigating between them feels like one consistent product. Keeps the
    existing font family + all other pages untouched. */
 body.attendance-page,
-body.workers-page {
+body.workers-page,
+body.reports-page {
   background:
     linear-gradient(
       170deg,
@@ -48,11 +49,14 @@ body.workers-page {
 body.attendance-page .app-shell-root,
 body.attendance-page .app-shell-frame,
 body.workers-page .app-shell-root,
-body.workers-page .app-shell-frame {
+body.workers-page .app-shell-frame,
+body.reports-page .app-shell-root,
+body.reports-page .app-shell-frame {
   background: transparent !important;
 }
 body.attendance-page .app-shell-header,
-body.workers-page .app-shell-header {
+body.workers-page .app-shell-header,
+body.reports-page .app-shell-header {
   background: hsla(30, 60%, 98%, 0.75) !important;
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
