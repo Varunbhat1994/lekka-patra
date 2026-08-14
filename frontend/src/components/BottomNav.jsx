@@ -23,13 +23,19 @@ export default function BottomNav() {
                   to={it.to}
                   data-testid={it.tid}
                   className={({ isActive }) =>
-                    `flex flex-col items-center justify-center py-2.5 min-h-[60px] text-[10px] uppercase tracking-wider transition-colors ${
+                    `relative flex flex-col items-center justify-center py-2.5 min-h-[60px] text-[10px] uppercase tracking-wider transition-colors ${
                       isActive ? "text-[hsl(var(--primary))]" : "text-muted-foreground hover:text-foreground"
                     }`
                   }
                 >
                   {({ isActive }) => (
                     <>
+                      {isActive && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute top-0 h-[3px] w-9 rounded-full bg-[hsl(var(--primary))]"
+                        />
+                      )}
                       <it.icon size={22} weight={isActive ? "fill" : "duotone"} />
                       <span className="mt-1">{t(it.key)}</span>
                     </>

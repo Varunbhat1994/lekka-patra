@@ -183,16 +183,22 @@ export default function AttendanceCalendar() {
               data-marked={marked ? "1" : "0"}
               onClick={() => openDate(day)}
               className={
-                "aspect-square rounded-lg text-sm flex items-center justify-center relative " +
+                "aspect-square rounded-full text-sm flex flex-col items-center justify-center relative " +
                 "active:scale-[0.96] transition-transform " +
                 (marked
-                  ? "bg-[hsl(var(--primary))] text-primary-foreground font-semibold"
+                  ? "bg-[hsl(var(--primary))]/15 text-[hsl(var(--primary))] font-semibold"
                   : "bg-transparent text-foreground hover:bg-muted") +
                 (isToday(day) && !marked ? " ring-1 ring-[hsl(var(--primary))]" : "")
               }
               aria-label={`Date ${dateStr}${marked ? ", worked (" + statusLabel(status) + ")" : ""}`}
             >
-              {day}
+              <span className="leading-none">{day}</span>
+              {marked && (
+                <span
+                  className="mt-0.5 h-1.5 w-1.5 rounded-full bg-[hsl(var(--primary))]"
+                  aria-hidden="true"
+                />
+              )}
             </button>
           );
         })}
