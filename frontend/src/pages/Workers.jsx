@@ -21,6 +21,12 @@ export default function Workers() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
 
+  // Match the Attendance page's warm peach background while this page is mounted.
+  useEffect(() => {
+    document.body.classList.add("workers-page");
+    return () => document.body.classList.remove("workers-page");
+  }, []);
+
   const load = () => axios.get(`${API}/workers`).then(r => setItems(r.data));
   useEffect(() => { load(); }, []);
 
@@ -62,12 +68,12 @@ export default function Workers() {
         <TrialBanner />
 
         {items.length === 0 && (
-          <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-xl border border-dashed border-[hsl(28_40%_78%)] bg-white/60 p-8 text-center text-sm text-muted-foreground">
             {t("no_workers")}
           </div>
         )}
 
-        <div className="rounded-xl border border-border bg-card divide-y divide-border overflow-hidden">
+        <div className="rounded-xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm divide-y divide-[hsl(28_35%_92%)] overflow-hidden shadow-sm">
           {items.map(w => (
             <div key={w.id} data-testid={`worker-row-${w.id}`} className="p-4 flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] grid place-items-center">

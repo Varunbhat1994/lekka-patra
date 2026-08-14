@@ -48,34 +48,40 @@ export default function ContractorsSection() {
 
   return (
     <>
-      <div className="mt-6">
+      <div className="mt-8">
+        {/* Section header — Contractors heading must match the "Workers"
+            page-title typography (Reference: AppShell <h1> uses
+            text-lg font-semibold tracking-tight). The Add Contractor
+            button mirrors Add Worker exactly: same size, same emerald
+            fill, same rounded pill, same icon, same weight. */}
         <div className="flex items-center justify-between mb-3">
-          <div>
-            <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              {lang === "kn" ? "ಗುತ್ತಿಗೆದಾರರು" : "Contractors"}
-            </div>
-            <div className="text-[11px] text-muted-foreground/80 mt-0.5">
-              {lang === "kn" ? "ದಿನವಾರು ಕಾರ್ಮಿಕರ ಮತ್ತು ಪಾವತಿಗಳ ಟ್ರ್ಯಾಕಿಂಗ್" : "Track workers brought & payments given"}
-            </div>
-          </div>
+          <h2
+            data-testid="contractors-heading"
+            className="text-lg font-semibold tracking-tight"
+          >
+            {lang === "kn" ? "ಗುತ್ತಿಗೆದಾರರು" : "Contractors"}
+          </h2>
           {!locked && (
-            <Button data-testid="add-contractor-btn" size="sm"
+            <Button
+              data-testid="add-contractor-btn"
+              size="sm"
               onClick={() => { setForm(emptyContractor); setAddOpen(true); }}
-              className="rounded-full bg-[hsl(var(--foreground))] hover:bg-[hsl(var(--foreground))]/90">
+              className="rounded-full bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90"
+            >
               <Plus size={16} weight="bold" className="mr-1"/>
-              {lang === "kn" ? "ಸೇರಿಸಿ" : "Add"}
+              {lang === "kn" ? "ಗುತ್ತಿಗೆದಾರ ಸೇರಿಸಿ" : "Add Contractor"}
             </Button>
           )}
         </div>
 
         {contractors.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border bg-card p-6 text-center text-xs text-muted-foreground">
+          <div className="rounded-xl border border-dashed border-[hsl(28_40%_78%)] bg-white/60 p-6 text-center text-xs text-muted-foreground">
             {lang === "kn"
               ? "ಇನ್ನೂ ಗುತ್ತಿಗೆದಾರರಿಲ್ಲ. ಅವರು ತಂದ ಕಾರ್ಮಿಕರ ಸಂಖ್ಯೆ ಮತ್ತು ಪಾವತಿಗಳನ್ನು ಟ್ರ್ಯಾಕ್ ಮಾಡಲು ಒಬ್ಬರನ್ನು ಸೇರಿಸಿ."
               : "No contractors yet. Add one to track how many workers they brought and payments given."}
           </div>
         ) : (
-          <div className="rounded-xl border border-border bg-card divide-y divide-border overflow-hidden">
+          <div className="rounded-xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm divide-y divide-[hsl(28_35%_92%)] overflow-hidden shadow-sm">
             {contractors.map(c => (
               <button
                 key={c.id}

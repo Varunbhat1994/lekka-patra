@@ -31,10 +31,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
 }
 
-/* Attendance page — very light peach/orange background (scoped via body
-   class toggled by Attendance.jsx on mount/unmount). Keeps the existing
-   font family + all other pages untouched. */
-body.attendance-page {
+/* Attendance & Workers pages — very light peach/orange background (scoped
+   via body class toggled on mount/unmount). Same gradient on both pages
+   so navigating between them feels like one consistent product. Keeps the
+   existing font family + all other pages untouched. */
+body.attendance-page,
+body.workers-page {
   background:
     linear-gradient(
       170deg,
@@ -44,10 +46,13 @@ body.attendance-page {
     ) fixed !important;
 }
 body.attendance-page .app-shell-root,
-body.attendance-page .app-shell-frame {
+body.attendance-page .app-shell-frame,
+body.workers-page .app-shell-root,
+body.workers-page .app-shell-frame {
   background: transparent !important;
 }
-body.attendance-page .app-shell-header {
+body.attendance-page .app-shell-header,
+body.workers-page .app-shell-header {
   background: hsla(30, 60%, 98%, 0.75) !important;
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
