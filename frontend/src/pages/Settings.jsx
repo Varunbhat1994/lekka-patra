@@ -16,14 +16,13 @@ import {
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  SignOut, Translate, Check, Sparkle, UserCircle, MapPin, DeviceMobile,
+  SignOut, Translate, Check, UserCircle, MapPin, DeviceMobile,
   PencilSimple, ChatCircleDots, Star, ShieldCheck,
 } from "@phosphor-icons/react";
 
 export default function Settings() {
   const { t, user, lang, setLanguage, logout, setUser, API, refresh } = useApp();
   const nav = useNavigate();
-  const acc = user?.access || {};
 
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState({ name: "", district: "", mobile: "" });
@@ -104,12 +103,6 @@ export default function Settings() {
               </div>
               <div className="font-medium truncate">{user?.name || "—"}</div>
             </div>
-            {acc.subscription_active && (
-              <div className="text-[10px] uppercase tracking-wider bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] px-2 py-1 rounded-full font-semibold flex items-center gap-1">
-                <Sparkle size={12} weight="fill"/>
-                {acc.subscription_days_left >= 9999 ? "Lifetime" : `${acc.subscription_days_left}d left`}
-              </div>
-            )}
           </div>
           <div className="mt-3 space-y-1.5 text-sm">
             <Row icon={DeviceMobile} label={lang === "kn" ? "ಮೊಬೈಲ್" : "Mobile"} value={user?.mobile ? `+${user.mobile}` : (user?.email || "—")} />
@@ -177,18 +170,6 @@ export default function Settings() {
                 Users, districts, ads and feedback inbox
               </div>
             </div>
-          </button>
-        )}
-
-        {!acc.subscription_active && (
-          <button
-            data-testid="settings-upgrade"
-            onClick={() => nav("/paywall")}
-            className="w-full rounded-xl border border-[hsl(var(--primary))] bg-[hsl(var(--primary))]/5 p-4 text-left"
-          >
-            <div className="text-xs uppercase tracking-[0.18em] text-[hsl(var(--primary))] font-semibold">{t("upgrade")}</div>
-            <div className="text-lg font-semibold mt-1">{t("unlock_lifetime")}</div>
-            <div className="text-xs text-muted-foreground">{t("lifetime_price")}</div>
           </button>
         )}
 

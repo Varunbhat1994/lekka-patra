@@ -15,7 +15,7 @@ const empty = { name: "", mobile: "", skill: "", daily_rate: "" };
 
 export default function Workers() {
   const { t, user, API } = useApp();
-  const locked = user?.access?.locked;
+  const locked = false;
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -34,8 +34,7 @@ export default function Workers() {
       toast.success(t("saved"));
       load();
     } catch (e) {
-      if (e.response?.status === 402) toast.error("Trial expired");
-      else toast.error("Failed to save");
+      toast.error("Failed to save");
     }
   };
 

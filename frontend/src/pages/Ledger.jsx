@@ -9,13 +9,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { CaretRight, User, Wallet, ClockCounterClockwise, FilePdf, MicrosoftExcelLogo, Plus, ArrowUUpLeft, ArrowCounterClockwise } from "@phosphor-icons/react";
+import { CaretRight, User, Wallet, ClockCounterClockwise, FilePdf, Plus, ArrowUUpLeft, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 
 export default function Ledger() {
   const { t, user, API, lang } = useApp();
   const nav = useNavigate();
-  const locked = user?.access?.locked;
+  const locked = false;
   const [workers, setWorkers] = useState([]);
   const [ledgers, setLedgers] = useState({});
   const [selected, setSelected] = useState(null);
@@ -166,10 +166,6 @@ export default function Ledger() {
           <Button data-testid="export-pdf-btn" onClick={() => downloadFile(`/reports/pdf${rangeParams()}`, "farm_report.pdf")}
             variant="outline" className="flex-1 min-h-[44px] rounded-lg">
             <FilePdf size={18} weight="duotone" className="mr-1"/>{t("export_pdf")}
-          </Button>
-          <Button data-testid="export-excel-btn" onClick={() => downloadFile(`/reports/excel${rangeParams()}`, "farm_report.xlsx")}
-            variant="outline" className="flex-1 min-h-[44px] rounded-lg">
-            <MicrosoftExcelLogo size={18} weight="duotone" className="mr-1"/>{t("export_excel")}
           </Button>
         </div>
 

@@ -74,9 +74,9 @@ export default function Login() {
           </div>
 
           <div className="mt-8 space-y-3 text-sm">
-            <FeatureRow txt={lang === "kn" ? "15 ದಿನಗಳ ಉಚಿತ ಟ್ರಯಲ್" : "15-day free trial"} />
+            <FeatureRow txt={lang === "kn" ? "ಸಂಪೂರ್ಣ ಉಚಿತ · ಎಲ್ಲಾ ವೈಶಿಷ್ಟ್ಯಗಳು" : "Completely free · All features included"} />
             <FeatureRow txt={lang === "kn" ? "ಡೇಟಾ ಕ್ಲೌಡ್‌ನಲ್ಲಿ ಸಂಗ್ರಹ" : "Data saved to cloud"} />
-            <FeatureRow txt={lang === "kn" ? "PDF / Excel ರಫ್ತು" : "PDF & Excel export"} />
+            <FeatureRow txt={lang === "kn" ? "PDF ವರದಿಗಳು" : "PDF reports"} />
           </div>
         </div>
       </div>

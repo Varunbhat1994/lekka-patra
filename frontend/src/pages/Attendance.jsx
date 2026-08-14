@@ -45,7 +45,7 @@ function isDirty(server, draft) {
 
 export default function Attendance() {
   const { t, lang, user, API } = useApp();
-  const locked = user?.access?.locked;
+  const locked = false;
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [workers, setWorkers] = useState([]);
   const [server, setServer] = useState({}); // worker_id -> last-known server row
@@ -82,7 +82,6 @@ export default function Attendance() {
   };
 
   const saveDraft = async (workerId) => {
-    if (locked) return toast.error("Trial expired");
     if (saving[workerId]) return; // guard double-click
     const d = drafts[workerId];
     if (!d?.status) {

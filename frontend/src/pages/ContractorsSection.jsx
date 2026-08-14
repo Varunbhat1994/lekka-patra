@@ -12,7 +12,7 @@ import {
 import { toast } from "sonner";
 import {
   Plus, HardHat, CalendarPlus, CurrencyInr, Trash,
-  Users, Wallet, X, ArrowLeft, FilePdf, MicrosoftExcelLogo, ArrowUUpLeft, ClockCounterClockwise, Check,
+  Users, Wallet, X, ArrowLeft, FilePdf, ArrowUUpLeft, ClockCounterClockwise, Check,
 } from "@phosphor-icons/react";
 
 const emptyContractor = { name: "", mobile: "", notes: "" };
@@ -21,7 +21,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 export default function ContractorsSection() {
   const { t, user, API, lang } = useApp();
   const nav = useNavigate();
-  const locked = user?.access?.locked;
+  const locked = false;
   const [contractors, setContractors] = useState([]);
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState(emptyContractor);
@@ -300,17 +300,12 @@ function ContractorDetail({ id, onClose }) {
           <div className="flex flex-wrap gap-2">
             <Button data-testid="contractor-pdf-btn"
               onClick={() => downloadFile(`/reports/contractor/${id}/pdf`, `${data?.contractor?.name || "contractor"}.pdf`)}
-              variant="outline" className="flex-1 min-w-[calc(33%-6px)] min-h-[40px] rounded-lg">
+              variant="outline" className="flex-1 min-w-[calc(50%-4px)] min-h-[40px] rounded-lg">
               <FilePdf size={16} className="mr-1"/>PDF
-            </Button>
-            <Button data-testid="contractor-excel-btn"
-              onClick={() => downloadFile(`/reports/contractor/${id}/excel`, `${data?.contractor?.name || "contractor"}.xlsx`)}
-              variant="outline" className="flex-1 min-w-[calc(33%-6px)] min-h-[40px] rounded-lg">
-              <MicrosoftExcelLogo size={16} className="mr-1"/>Excel
             </Button>
             <Button data-testid="contractor-history-btn"
               onClick={() => nav(`/history/contractor/${id}`)}
-              variant="outline" className="flex-1 min-w-[calc(33%-6px)] min-h-[40px] rounded-lg">
+              variant="outline" className="flex-1 min-w-[calc(50%-4px)] min-h-[40px] rounded-lg">
               <ClockCounterClockwise size={16} weight="duotone" className="mr-1"/>History
             </Button>
             {!locked && (
