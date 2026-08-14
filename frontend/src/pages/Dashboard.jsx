@@ -102,19 +102,19 @@ export default function Dashboard() {
 
   return (
     <AppShell title={t("dashboard")} right={<FeedbackBell />}>
-      <div className="space-y-4">
+      <div className="space-y-3">
 
         {/* Greeting + light leafy hero */}
         <div
           data-testid="dashboard-greeting"
-          className="relative overflow-hidden rounded-2xl px-1 py-2"
+          className="relative overflow-hidden rounded-2xl px-1 pt-1 pb-1"
         >
           <LeafDecor className="absolute -right-2 -top-2 w-40 h-28 text-[hsl(var(--primary))]"/>
           <div className="relative">
             <div className="text-sm text-muted-foreground flex items-center gap-1">
               {greeting(lang)} <span aria-hidden="true">🌤️</span>
             </div>
-            <div className="mt-1 text-3xl font-bold tracking-tight text-[hsl(var(--primary))]">
+            <div className="mt-0.5 text-3xl font-bold tracking-tight text-[hsl(var(--primary))]">
               {farmLabel}
             </div>
           </div>
@@ -123,18 +123,18 @@ export default function Dashboard() {
         {/* Present Today — emerald gradient hero with worker illustration */}
         <div
           data-testid="stat-present"
-          className="relative overflow-hidden rounded-2xl p-5 text-white shadow-lg"
+          className="relative overflow-hidden rounded-2xl p-4 text-white shadow-lg"
           style={{
             background:
               "linear-gradient(135deg, hsl(140 55% 34%) 0%, hsl(150 60% 28%) 100%)",
           }}
         >
           <FarmWorkersIllustration
-            className="absolute right-2 top-2 w-40 h-32 text-white/25"
+            className="absolute right-2 top-1 w-36 h-28 text-white/25"
           />
           <div className="relative flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full bg-white/20 grid place-items-center backdrop-blur-sm">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <div className="w-10 h-10 rounded-full bg-white/20 grid place-items-center backdrop-blur-sm">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="8" r="4" stroke="white" strokeWidth="2"/>
                 <path d="M4 20c0-4 3.5-7 8-7s8 3 8 7" stroke="white" strokeWidth="2" strokeLinecap="round"/>
               </svg>
@@ -143,10 +143,10 @@ export default function Dashboard() {
               {t("present_today")}
             </div>
           </div>
-          <div className="relative mt-3 text-6xl font-bold leading-none">
+          <div className="relative mt-2 text-5xl font-bold leading-none">
             {presentCount}
           </div>
-          <div className="relative mt-2 text-sm text-white/85">
+          <div className="relative mt-1.5 text-sm text-white/85">
             {lang === "kn" ? "ಕಾರ್ಮಿಕರು ಹಾಜರು" : "Workers Present"}
           </div>
         </div>
@@ -156,18 +156,18 @@ export default function Dashboard() {
         {/* Agri Expenses Coming Soon — warm illustrated card */}
         <div
           data-testid="agri-expenses-coming-soon"
-          className="relative overflow-hidden rounded-2xl border border-[hsl(45_60%_82%)] p-5"
+          className="relative overflow-hidden rounded-2xl border border-[hsl(45_60%_82%)] p-4"
           style={{
             background:
               "linear-gradient(180deg, hsl(45 65% 96%) 0%, hsl(35 60% 92%) 100%)",
           }}
         >
           <TractorIllustration
-            className="absolute right-2 bottom-1 w-40 h-24 text-[hsl(35_55%_55%)] opacity-70"
+            className="absolute right-2 bottom-1 w-36 h-20 text-[hsl(35_55%_55%)] opacity-70"
           />
           <div className="relative flex items-start gap-3">
-            <div className="w-11 h-11 rounded-full bg-[hsl(45_65%_88%)] grid place-items-center shrink-0">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <div className="w-10 h-10 rounded-full bg-[hsl(45_65%_88%)] grid place-items-center shrink-0">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <path d="M12 3v18M6 8c0 3 3 5 6 5s6-2 6-5" stroke="hsl(35 60% 40%)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 <circle cx="12" cy="16" r="3.5" stroke="hsl(35 60% 40%)" strokeWidth="1.8" fill="white"/>
                 <text x="12" y="18.4" textAnchor="middle" fontSize="4.5" fontWeight="700" fill="hsl(35 60% 40%)">₹</text>
@@ -177,10 +177,10 @@ export default function Dashboard() {
               <div className="text-[10px] uppercase tracking-[0.22em] text-[hsl(35_60%_40%)] font-semibold">
                 Agri Expenses
               </div>
-              <div className="mt-1 text-2xl font-bold text-[hsl(30_45%_25%)]">
+              <div className="mt-0.5 text-2xl font-bold text-[hsl(30_45%_25%)]">
                 Coming Soon
               </div>
-              <div className="mt-1 text-xs text-[hsl(30_25%_40%)] max-w-[60%]">
+              <div className="mt-0.5 text-xs text-[hsl(30_25%_40%)] max-w-[60%]">
                 {lang === "kn"
                   ? "ನಿಮ್ಮ ಕೃಷಿ ವೆಚ್ಚಗಳನ್ನು ಒಂದೇ ಸ್ಥಳದಲ್ಲಿ ನಿರ್ವಹಿಸಿ"
                   : "Manage your farm expenses in one place"}

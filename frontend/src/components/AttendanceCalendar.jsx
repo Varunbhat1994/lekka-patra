@@ -187,7 +187,7 @@ export default function AttendanceCalendar() {
   return (
     <div
       data-testid="attendance-calendar"
-      className="rounded-2xl border border-border bg-card p-4 space-y-4 shadow-sm"
+      className="rounded-2xl border border-border bg-card p-4 space-y-3 shadow-sm"
     >
       {/* Card header — Reference A style */}
       <div className="flex items-center gap-3">
@@ -299,7 +299,7 @@ export default function AttendanceCalendar() {
       {/* Status legend — Reference A */}
       <div
         data-testid="calendar-status-legend"
-        className="mt-1 pt-3 border-t border-border/70 space-y-2"
+        className="pt-2 border-t border-border/70 space-y-1.5"
       >
         <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-semibold">
           Status Legend
