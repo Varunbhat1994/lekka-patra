@@ -3,10 +3,10 @@ import axios from "axios";
 import AppShell from "@/components/AppShell";
 import TrialBanner from "@/components/TrialBanner";
 import AdCarousel from "@/components/AdCarousel";
-import PendingWageMarquee from "@/components/PendingWageMarquee";
 import FeedbackBell from "@/components/FeedbackBell";
+import AttendanceCalendar from "@/components/AttendanceCalendar";
 import { useApp } from "@/context/AppContext";
-import { UsersThree, CheckCircle, CurrencyInr, Wallet } from "@phosphor-icons/react";
+import { CheckCircle, Plant } from "@phosphor-icons/react";
 
 export default function Dashboard() {
   const { t, user, API } = useApp();
@@ -30,17 +30,30 @@ export default function Dashboard() {
 
         <TrialBanner />
 
-        <div className="grid grid-cols-2 gap-3">
-          <StatCard tid="stat-workers" icon={UsersThree} label={t("workers_total")} val={data?.workers_total ?? "—"} />
-          <StatCard tid="stat-present" icon={CheckCircle} label={t("present_today")} val={data?.present_today ?? "—"} />
-          <StatCard tid="stat-today-wage" icon={CurrencyInr} label={t("est_wage_today")} val={data ? `₹${data.estimated_wage_today}` : "—"} />
+        {/* Only Present Today remains from the four legacy stat cards. */}
+        <div className="grid grid-cols-1">
           <StatCard
-            tid="stat-pending"
-            icon={Wallet}
-            label={t("pending_wage")}
-            val={data ? `₹${data.pending_wage}` : "—"}
-            marquee={<PendingWageMarquee items={data?.pending_list || []} />}
+            tid="stat-present"
+            icon={CheckCircle}
+            label={t("present_today")}
+            val={data?.present_today ?? "—"}
           />
+        </div>
+
+        <AttendanceCalendar />
+
+        {/* Agri Expenses — Coming Soon (visual placeholder only) */}
+        <div
+          data-testid="agri-expenses-coming-soon"
+          className="rounded-xl border border-dashed border-[hsl(var(--primary))]/40 bg-[hsl(var(--primary))]/5 p-5 flex items-center gap-4"
+        >
+          <div className="w-11 h-11 rounded-full bg-[hsl(var(--primary))]/15 flex items-center justify-center">
+            <Plant size={22} weight="duotone" className="text-[hsl(var(--primary))]"/>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold">Agri Expenses</div>
+            <div className="text-xs text-muted-foreground mt-0.5">Coming Soon</div>
+          </div>
         </div>
 
         <AdCarousel />
@@ -49,13 +62,12 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ tid, icon: Icon, label, val, marquee }) {
+function StatCard({ tid, icon: Icon, label, val }) {
   return (
     <div data-testid={tid} className="rounded-xl border border-border bg-card p-4 overflow-hidden">
       <Icon size={22} weight="duotone" className="text-[hsl(var(--primary))]"/>
       <div className="mt-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
       <div className="mt-1 text-2xl font-semibold tracking-tight">{val}</div>
-      {marquee}
     </div>
   );
 }

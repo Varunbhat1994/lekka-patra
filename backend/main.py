@@ -46,6 +46,7 @@ from routes.reports import router as reports_router
 from routes.payments import router as payments_router
 from routes.owner import router as owner_router
 from routes.health import router as health_router
+from routes.calendar import router as calendar_router
 
 # RBAC helpers used only inside the startup event below.
 from security.authorization import _owner_mobile, _owner_email
@@ -77,6 +78,7 @@ api.include_router(reports_router)
 api.include_router(payments_router)
 api.include_router(owner_router)
 api.include_router(health_router)
+api.include_router(calendar_router)
 
 
 @app.on_event("startup")
