@@ -24,12 +24,36 @@ from security.utils import _normalize_mobile
 TRIAL_DAYS = 15
 
 
+# Phase 3 free-model pivot: when FREE_MODE=1 (default), the trial/subscription
+# gate is disabled — every authenticated user has full write access. Payment
+# routes (routes/payments.py) and subscription state fields on the user record
+# remain untouched so subscription can be re-enabled by setting FREE_MODE=0.
+def _free_mode_enabled() -> bool:
+    return (os.environ.get("FREE_MODE", "1") or "1").strip() not in ("0", "false", "False", "")
+
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def compute_access(user: dict) -> dict:
-    """Return trial/subscription state. Annual subscription supersedes trial."""
+    """Return trial/subscription state. Annual subscription supersedes trial.
+
+    In FREE_MODE (default), always returns unlocked / paid-equivalent access
+    so no client-side or server-side gate can block normal app functionality.
+    Subscription/trial fields on the user document remain untouched and can be
+    reactivated by flipping FREE_MODE=0.
+    """
+    if _free_mode_enabled():
+        return {
+            "is_paid": True,
+            "trial_active": False,
+            "trial_days_left": 0,
+            "locked": False,
+            "subscription_active": True,
+            "subscription_days_left": 9999,
+            "free_mode": True,
+        }
     # Active subscription?
     sub_exp = user.get("subscription_expires_at")
     if isinstance(sub_exp, str) and sub_exp:
