@@ -80,31 +80,28 @@ async def report_pdf(
         ]))
         story.append(t)
 
-        # Date-wise attendance log — must reflect manual half-day wage and
-        # manual overtime amount so the PDF matches the Worker History
-        # screen 1:1. Legacy overtime_hours rows continue to show hours.
+        # Date-wise attendance log — Manual Wage + OT = Final Amount
+        # (per RULE 4). Values are read directly from the enriched
+        # per-row fields set by compute_worker_ledger — the SAME numbers
+        # the History screen shows. No recalculation here.
         if led["attendance"]:
             story.append(Spacer(1, 6))
             story.append(Paragraph("<b>Attendance (date-wise)</b>", styles["Normal"]))
-            att_rows = [["Date", "Status", "OT (hrs/amt)", "Manual Wage", "Field/Crop", "Description"]]
+            att_rows = [["Date", "Status", "Wage + OT", "Final Amount", "Field/Crop", "Description"]]
             for a in sorted(led["attendance"], key=lambda x: x["date"]):
-                # Prefer the amount-based overtime display; fall back to hours.
-                if a.get("overtime_amount") is not None:
-                    ot_col = f"Rs {a['overtime_amount']}"
-                elif a.get("overtime_hours"):
-                    ot_col = f"{a['overtime_hours']} hrs"
-                else:
-                    ot_col = ""
-                mw_col = f"Rs {a['manual_wage']}" if a.get("manual_wage") is not None else ""
+                wage = a.get("wage_component", 0)
+                ot = a.get("ot_component", 0)
+                final = a.get("final_amount", 0)
+                combined = f"Rs {wage} + Rs {ot} (OT)"
                 att_rows.append([
                     a["date"],
                     a["status"].replace("_", " ").title(),
-                    ot_col,
-                    mw_col,
+                    combined,
+                    f"= Rs {final}",
                     a.get("field_crop", ""),
                     (a.get("description", "") or "")[:60],
                 ])
-            att_tab = Table(att_rows, hAlign="LEFT")
+            att_tab = Table(att_rows, hAlign="LEFT", repeatRows=1)
             att_tab.setStyle(TableStyle([
                 ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")),
                 ("GRID", (0,0), (-1,-1), 0.25, colors.grey),

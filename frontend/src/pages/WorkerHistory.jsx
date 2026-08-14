@@ -151,11 +151,12 @@ export default function WorkerHistory() {
           const g = byMonth[mKey];
           const [y, m] = mKey.split("-");
           const mLabel = `${MONTHS[parseInt(m)-1]} ${y}`;
-          const monthEarned = g.att.reduce((s,a) => s + (a.status==="present"?worker?.daily_rate:a.status==="half_day"?worker?.daily_rate*0.5:a.status==="overtime"?worker?.daily_rate*(1+(a.overtime_hours||0)/8):0), 0);
+          // Single source of truth: use per-row final_amount from backend.
+          const monthEarned = g.att.reduce((s,a) => s + (a.final_amount ?? 0), 0);
           const monthAdv = g.adv.reduce((s,x)=>s+x.amount,0);
           const monthRet = g.ret.reduce((s,x)=>s+x.amount,0);
           const monthSettle = g.settle.reduce((s,x)=>s+(x.amount||0),0);
-          const isOpen = expanded[mKey] ?? true; // current month open
+          const isOpen = expanded[mKey] ?? true;
           return (
             <div key={mKey} data-testid={`month-${mKey}`} className="rounded-xl border border-border bg-card overflow-hidden">
               <button onClick={()=>setExpanded({...expanded, [mKey]: !isOpen})}
@@ -167,13 +168,21 @@ export default function WorkerHistory() {
               </button>
               {isOpen && (
                 <div className="border-t border-border divide-y divide-border">
-                  {/* Attendance rows */}
-                  {g.att.sort((a,b)=>b.date.localeCompare(a.date)).map(a => (
-                    <Row key={"a"+a.id} date={a.date}
-                      left={attStatusBadge(a.status)}
-                      desc={a.field_crop || a.description || "—"}
-                      right={<span className="text-[hsl(var(--primary))] font-medium">+₹{a.status==="present"?worker?.daily_rate:a.status==="half_day"?worker?.daily_rate*0.5:a.status==="overtime"?worker?.daily_rate*(1+(a.overtime_hours||0)/8):0}</span>} />
-                  ))}
+                  {/* Attendance rows — Manual Wage + OT = Final Amount */}
+                  {g.att.sort((a,b)=>b.date.localeCompare(a.date)).map(a => {
+                    const wage = a.wage_component ?? 0;
+                    const ot = a.ot_component ?? 0;
+                    const final = a.final_amount ?? 0;
+                    const combined = ot > 0
+                      ? <span>₹{wage} + ₹{ot} (OT)</span>
+                      : <span>₹{wage} + ₹0 (OT)</span>;
+                    return (
+                      <Row key={"a"+a.id} date={a.date}
+                        left={attStatusBadge(a.status)}
+                        desc={combined}
+                        right={<span className="text-[hsl(var(--primary))] font-medium">= ₹{final}</span>} />
+                    );
+                  })}
                   {/* Advances */}
                   {g.adv.sort((a,b)=>b.date.localeCompare(a.date)).map(a => (
                     <Row key={"v"+a.id} date={a.date}
@@ -184,7 +193,7 @@ export default function WorkerHistory() {
                   {/* Returns */}
                   {g.ret.sort((a,b)=>b.date.localeCompare(a.date)).map(r => (
                     <Row key={"r"+r.id} date={r.date}
-                      left={<span className="inline-flex items-center gap-1 text-xs text-emerald-700"><ArrowUp size={14}/>Return</span>}
+                      left={<span className="inline-flex items-center gap-1 text-xs text-emerald-700"><ArrowUp size={14}/>{r.settlement_id ? "Return (Settlement)" : "Return"}</span>}
                       desc={r.notes || r.method}
                       right={<span className="text-emerald-700 font-medium">+₹{r.amount}</span>} />
                   ))}

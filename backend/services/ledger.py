@@ -80,34 +80,53 @@ async def compute_worker_ledger(
     att = await db.attendance.find(q, {"_id": 0}).sort("date", -1).to_list(10000)
     total_earned = 0.0
     days_worked = 0.0
+    # Enrich every attendance row with per-row derived components so
+    # UI + PDF never recompute wage themselves (RULE 1 — single source
+    # of truth). Fields written back onto the dict:
+    #   wage_component   — base daily/half-day/manual amount
+    #   ot_component     — overtime bonus in rupees (0 for non-OT)
+    #   final_amount     — wage_component + ot_component (= _wage_units)
     for a in att:
-        # Prefer the wage snapshot stored on the row (locked at write
-        # time) so wage-rate edits never rewrite historical earnings.
-        # Fall back to the worker's current daily_rate for legacy rows
-        # created before `daily_rate_snapshot` existed.
         rate = a.get("daily_rate_snapshot")
         if rate is None:
             rate = worker["daily_rate"]
-        u = _wage_units(
-            a["status"],
-            a.get("overtime_hours", 0),
-            rate,
-            manual_wage=a.get("manual_wage"),
-            overtime_amount=a.get("overtime_amount"),
-        )
-        total_earned += u
-        if a["status"] == "present":
+        status = a["status"]
+        ot_amt = a.get("overtime_amount")
+        ot_hrs = a.get("overtime_hours", 0)
+        mw = a.get("manual_wage")
+
+        # Split components so the UI can show "wage + OT = final".
+        if status == "present":
+            wage_component = rate
+            ot_component = 0.0
+        elif status == "half_day":
+            wage_component = float(mw) if mw is not None else rate * 0.5
+            ot_component = 0.0
+        elif status == "overtime":
+            wage_component = rate
+            if ot_amt is not None:
+                ot_component = float(ot_amt)
+            else:
+                ot_component = rate * (ot_hrs / 8.0)
+        else:  # absent, unknown
+            wage_component = 0.0
+            ot_component = 0.0
+
+        final_amount = round(wage_component + ot_component, 2)
+        a["wage_component"] = round(wage_component, 2)
+        a["ot_component"] = round(ot_component, 2)
+        a["final_amount"] = final_amount
+
+        total_earned += final_amount
+        if status == "present":
             days_worked += 1
-        elif a["status"] == "half_day":
+        elif status == "half_day":
             days_worked += 0.5
-        elif a["status"] == "overtime":
-            # Amount-based overtime = a full day + monetary bonus (no
-            # fractional-day inflation). Legacy hours-based overtime
-            # keeps its "1 + hours/8" day count for backward compat.
-            if a.get("overtime_amount") is not None:
+        elif status == "overtime":
+            if ot_amt is not None:
                 days_worked += 1
             else:
-                days_worked += 1 + a.get("overtime_hours", 0) / 8.0
+                days_worked += 1 + ot_hrs / 8.0
 
     # Advances and returns.
     # For CURRENT-cycle mode (no explicit start/end): they are an
