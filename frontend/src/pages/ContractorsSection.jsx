@@ -75,13 +75,13 @@ export default function ContractorsSection() {
         </div>
 
         {contractors.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-[hsl(28_40%_78%)] bg-white/60 p-6 text-center text-xs text-muted-foreground">
+          <div className="rounded-2xl border border-dashed border-[hsl(28_40%_78%)] bg-white/60 p-6 text-center text-xs text-muted-foreground">
             {lang === "kn"
               ? "ಇನ್ನೂ ಗುತ್ತಿಗೆದಾರರಿಲ್ಲ. ಅವರು ತಂದ ಕಾರ್ಮಿಕರ ಸಂಖ್ಯೆ ಮತ್ತು ಪಾವತಿಗಳನ್ನು ಟ್ರ್ಯಾಕ್ ಮಾಡಲು ಒಬ್ಬರನ್ನು ಸೇರಿಸಿ."
               : "No contractors yet. Add one to track how many workers they brought and payments given."}
           </div>
         ) : (
-          <div className="rounded-xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm divide-y divide-[hsl(28_35%_92%)] overflow-hidden shadow-sm">
+          <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm divide-y divide-[hsl(28_35%_92%)] overflow-hidden shadow-sm">
             {contractors.map(c => (
               <button
                 key={c.id}
@@ -340,7 +340,7 @@ function ContractorDetail({ id, onClose }) {
           {tab === "visits" && (
             <>
               {!locked && (
-                <div className="rounded-xl border border-border bg-card p-3 space-y-2">
+                <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-3 space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <Input data-testid="visit-date" type="date" value={visitForm.date}
                       onChange={e => setVisitForm({...visitForm, date: e.target.value})}
@@ -398,7 +398,7 @@ function ContractorDetail({ id, onClose }) {
           {tab === "payments" && (
             <>
               {!locked && (
-                <div className="rounded-xl border border-border bg-card p-3 space-y-2">
+                <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/85 backdrop-blur-sm shadow-sm p-3 space-y-2">
                   <div className="grid grid-cols-2 gap-2 p-1 bg-secondary/50 rounded-lg">
                     <button data-testid="cpay-mode-payment" onClick={() => setPayMode("payment")}
                       className={`min-h-[36px] rounded-md text-xs font-medium transition-colors ${payMode === "payment" ? "bg-white shadow-sm" : "text-muted-foreground"}`}>

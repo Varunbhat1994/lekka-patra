@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import AppShell from "@/components/AppShell";
-import TrialBanner from "@/components/TrialBanner";
-import AdCarousel from "@/components/AdCarousel";
 import FeedbackBell from "@/components/FeedbackBell";
 import AttendanceCalendar from "@/components/AttendanceCalendar";
 import { useApp } from "@/context/AppContext";
@@ -88,6 +86,12 @@ export default function Dashboard() {
   const { t, user, API, lang } = useApp();
   const [data, setData] = useState(null);
 
+  // Match the Reports peach background on Dashboard too (per Stage 1).
+  useEffect(() => {
+    document.body.classList.add("reports-page");
+    return () => document.body.classList.remove("reports-page");
+  }, []);
+
   useEffect(() => {
     axios.get(`${API}/dashboard`).then(r => setData(r.data)).catch(()=>{});
   }, [API]);
@@ -115,8 +119,6 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-
-        <TrialBanner />
 
         {/* Present Today — emerald gradient hero with worker illustration */}
         <div
@@ -189,8 +191,6 @@ export default function Dashboard() {
             </span>
           </div>
         </div>
-
-        <AdCarousel />
       </div>
     </AppShell>
   );
