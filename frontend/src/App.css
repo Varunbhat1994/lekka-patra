@@ -30,3 +30,53 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   opacity: 0.5;
   cursor: pointer;
 }
+
+/* Attendance page — very light peach/orange background (scoped via body
+   class toggled by Attendance.jsx on mount/unmount). Keeps the existing
+   font family + all other pages untouched. */
+body.attendance-page {
+  background:
+    linear-gradient(
+      170deg,
+      hsl(38 95% 96%) 0%,
+      hsl(28 85% 93%) 45%,
+      hsl(22 78% 90%) 100%
+    ) fixed !important;
+}
+body.attendance-page .app-shell-root,
+body.attendance-page .app-shell-frame {
+  background: transparent !important;
+}
+body.attendance-page .app-shell-header {
+  background: hsla(30, 60%, 98%, 0.75) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-bottom-color: hsla(28, 40%, 82%, 0.6) !important;
+}
+/* Smooth press/hover lift on attendance cards */
+.att-card {
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 200ms ease;
+  will-change: transform;
+}
+@media (hover: hover) and (pointer: fine) {
+  .att-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px -14px hsla(24, 45%, 45%, 0.25),
+                0 4px 10px -6px hsla(24, 40%, 40%, 0.12);
+  }
+}
+.att-card:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 10px -6px hsla(24, 40%, 40%, 0.12);
+}
+.att-status-btn {
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    border-color 180ms ease,
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.att-status-btn:active { transform: scale(0.96); }

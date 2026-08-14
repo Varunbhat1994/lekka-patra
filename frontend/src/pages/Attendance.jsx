@@ -9,7 +9,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { CheckCircle, Clock, XCircle, Timer, User, FloppyDisk, ArrowUUpLeft } from "@phosphor-icons/react";
-
 const STATUSES = [
   { key: "present", label_key: "present", icon: CheckCircle, color: "hsl(var(--primary))" },
   { key: "half_day", label_key: "half_day", icon: Clock, color: "#b89654" },
@@ -51,6 +50,12 @@ export default function Attendance() {
   const [server, setServer] = useState({}); // worker_id -> last-known server row
   const [drafts, setDrafts] = useState({});  // worker_id -> unsaved edits
   const [saving, setSaving] = useState({}); // worker_id -> in-flight bool
+
+  // Toggle the scoped page-background class only while this page is mounted.
+  useEffect(() => {
+    document.body.classList.add("attendance-page");
+    return () => document.body.classList.remove("attendance-page");
+  }, []);
 
   const load = useCallback(async () => {
     const [w, a] = await Promise.all([
@@ -135,7 +140,7 @@ export default function Attendance() {
     <AppShell title={t("attendance")}>
       <div className="space-y-4">
         <TrialBanner />
-        <div className="rounded-xl border border-border bg-card p-3 flex items-center gap-3">
+        <div className="rounded-2xl border border-[hsl(28_40%_86%)] bg-white/70 backdrop-blur-sm p-3 flex items-center gap-3 shadow-sm">
           <Label className="text-xs uppercase tracking-[0.15em] text-muted-foreground">{t("date")}</Label>
           <input
             data-testid="attendance-date"
@@ -147,7 +152,7 @@ export default function Attendance() {
         </div>
 
         {workers.length === 0 && (
-          <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-2xl border border-dashed border-[hsl(28_40%_78%)] bg-white/60 p-8 text-center text-sm text-muted-foreground">
             {t("no_workers")}
           </div>
         )}
@@ -161,9 +166,15 @@ export default function Attendance() {
             const dirty = isDirty(server[w.id], cur);
             const inFlight = !!saving[w.id];
             return (
-              <div key={w.id} data-testid={`att-worker-${w.id}`} className="rounded-xl border border-border bg-card p-4 space-y-3">
+              <div
+                key={w.id}
+                data-testid={`att-worker-${w.id}`}
+                className={`att-card rounded-3xl border bg-white/85 backdrop-blur-sm p-5 space-y-3 shadow-sm ${
+                  dirty ? "border-[#c58a3e]/50 ring-1 ring-[#c58a3e]/15" : "border-[hsl(28_45%_88%)]"
+                }`}
+              >
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] grid place-items-center">
+                  <div className="h-11 w-11 rounded-2xl bg-[hsl(var(--primary))]/12 text-[hsl(var(--primary))] grid place-items-center">
                     <User size={20} weight="duotone"/>
                   </div>
                   <div className="flex-1 min-w-0">
@@ -173,7 +184,7 @@ export default function Attendance() {
                   {dirty && (
                     <span
                       data-testid={`att-${w.id}-unsaved`}
-                      className="text-[10px] font-semibold uppercase tracking-wider text-[#b89654] bg-[#b89654]/10 rounded-full px-2 py-1"
+                      className="text-[10px] font-semibold uppercase tracking-wider text-[#b89654] bg-[#b89654]/12 rounded-full px-2.5 py-1"
                     >
                       {lang === "kn" ? "ಉಳಿಸಿಲ್ಲ" : "Unsaved"}
                     </span>
@@ -189,10 +200,10 @@ export default function Attendance() {
                         data-testid={`att-${w.id}-${s.key}`}
                         disabled={locked}
                         onClick={() => setDraft(w.id, { status: s.key })}
-                        className={`min-h-[64px] rounded-lg border flex flex-col items-center justify-center gap-1 text-[10px] uppercase tracking-wider transition-all active:scale-[0.97] ${
+                        className={`att-status-btn min-h-[68px] rounded-2xl border flex flex-col items-center justify-center gap-1 text-[10px] uppercase tracking-wider ${
                           active
-                            ? "border-transparent text-white"
-                            : "border-border bg-white text-muted-foreground hover:bg-secondary/40"
+                            ? "border-transparent text-white shadow-md"
+                            : "border-[hsl(28_45%_88%)] bg-white text-muted-foreground hover:bg-[hsl(30_60%_97%)] hover:border-[hsl(28_50%_82%)]"
                         }`}
                         style={active ? { backgroundColor: s.color } : {}}
                       >
@@ -268,7 +279,7 @@ export default function Attendance() {
                     data-testid={`att-${w.id}-save`}
                     disabled={!dirty || inFlight || locked}
                     onClick={() => saveDraft(w.id)}
-                    className="flex-1 min-h-[42px] bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90"
+                    className="flex-1 min-h-[46px] rounded-2xl bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 shadow-md hover:shadow-lg transition-all"
                   >
                     <FloppyDisk size={16} className="mr-1"/>
                     {inFlight
@@ -280,7 +291,7 @@ export default function Attendance() {
                     disabled={!dirty || inFlight}
                     onClick={() => cancelDraft(w.id)}
                     variant="outline"
-                    className="min-h-[42px]"
+                    className="min-h-[46px] rounded-2xl border-[hsl(28_40%_80%)] bg-white/80 hover:bg-white"
                   >
                     <ArrowUUpLeft size={16} className="mr-1"/>
                     {lang === "kn" ? "ರದ್ದು" : "Cancel"}
@@ -293,7 +304,7 @@ export default function Attendance() {
           const SectionHeader = ({ label, count, tone, testId }) => (
             <div
               data-testid={testId}
-              className="sticky top-0 z-10 -mx-1 px-1 py-2 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70"
+              className="sticky top-14 z-10 -mx-1 px-1 py-2 bg-[hsl(30_60%_96%)]/85 backdrop-blur supports-[backdrop-filter]:bg-[hsl(30_60%_96%)]/70"
             >
               <div className="flex items-center gap-3">
                 <span
@@ -303,7 +314,7 @@ export default function Attendance() {
                   {label}
                 </h3>
                 <span className="text-[11px] text-muted-foreground">· {count}</span>
-                <div className="flex-1 h-px bg-border" />
+                <div className="flex-1 h-px bg-[hsl(28_40%_82%)]/60" />
               </div>
             </div>
           );
