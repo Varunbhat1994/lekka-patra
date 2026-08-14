@@ -46,6 +46,43 @@ function LoginHero() {
   );
 }
 
+// Two-farmer illustration (turbans + hoe) — mirrors the workers duo used
+// on the Dashboard's "Present Today" card, per the visual reference.
+function TwoFarmers({ className = "" }) {
+  return (
+    <svg viewBox="0 0 260 200" fill="none" xmlns="http://www.w3.org/2000/svg"
+         className={className} aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none">
+        {/* Farmer A: turban + face + torso */}
+        <path d="M60 46 c 0 -14, 10 -22, 22 -22 s 22 8 22 22"/>{/* turban */}
+        <path d="M60 46 h 44"/>
+        <circle cx="82" cy="60" r="14"/>{/* face */}
+        <path d="M74 66 q 8 6 16 0"/>{/* smile */}
+        <circle cx="76" cy="58" r="1.2" fill="currentColor"/>
+        <circle cx="88" cy="58" r="1.2" fill="currentColor"/>
+        <path d="M64 82 q 18 12 36 0 l 6 44 h -48 z"/>{/* shirt */}
+        <path d="M70 126 v 46 M94 126 v 46"/>{/* legs */}
+        {/* Farmer B: turban + face + torso, holding a hoe */}
+        <path d="M150 46 c 0 -14, 10 -22, 22 -22 s 22 8 22 22"/>
+        <path d="M150 46 h 44"/>
+        <circle cx="172" cy="60" r="14"/>
+        <path d="M164 66 q 8 6 16 0"/>
+        <circle cx="166" cy="58" r="1.2" fill="currentColor"/>
+        <circle cx="178" cy="58" r="1.2" fill="currentColor"/>
+        <path d="M154 82 q 18 12 36 0 l 6 44 h -48 z"/>
+        <path d="M160 126 v 46 M184 126 v 46"/>
+        {/* Hoe */}
+        <path d="M196 90 l 40 -40"/>
+        <path d="M232 46 l 10 4 -4 10 z"/>
+        {/* Ground + sprout */}
+        <path d="M20 178 h 220"/>
+        <path d="M120 168 c 0 -6 4 -10 8 -10 s 8 4 8 10"/>
+        <path d="M128 168 v -16"/>
+      </g>
+    </svg>
+  );
+}
+
 export default function Login() {
   const { t, lang } = useApp();
   const nav = useNavigate();
@@ -63,6 +100,10 @@ export default function Login() {
         {/* Hero */}
         <div className="relative h-64 overflow-hidden">
           <LoginHero />
+          {/* Two-farmer illustration at 50% visibility, layered over the hero */}
+          <TwoFarmers
+            className="absolute bottom-0 right-3 w-56 h-44 text-white opacity-50 pointer-events-none"
+          />
           <div className="absolute top-6 left-6 flex items-center gap-2 text-white">
             <div className="h-10 w-10 rounded-xl bg-white/20 backdrop-blur-md grid place-items-center border border-white/30">
               <Plant size={22} weight="duotone" />
