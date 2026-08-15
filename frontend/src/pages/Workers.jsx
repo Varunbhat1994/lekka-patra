@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
 import AppShell from "@/components/AppShell";
 import TrialBanner from "@/components/TrialBanner";
 import { useApp } from "@/context/AppContext";
@@ -10,11 +9,12 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Plus, PencilSimple, User } from "@phosphor-icons/react";
 import ContractorsSection from "@/pages/ContractorsSection";
+import { listWorkers, createWorker, updateWorker } from "@/offline";
 
 const empty = { name: "", mobile: "", skill: "", daily_rate: "" };
 
 export default function Workers() {
-  const { t, user, API } = useApp();
+  const { t, user, API, accountScope, isOnline } = useApp();
   const locked = false;
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
@@ -27,15 +27,20 @@ export default function Workers() {
     return () => document.body.classList.remove("workers-page");
   }, []);
 
-  const load = () => axios.get(`${API}/workers`).then(r => setItems(r.data));
-  useEffect(() => { load(); }, []);
+  const load = async () => {
+    if (!accountScope) return;
+    try { setItems(await listWorkers(accountScope)); }
+    catch { /* fallback already handled inside listWorkers */ }
+  };
+  useEffect(() => { load(); }, [accountScope, isOnline]);
 
   const save = async () => {
     if (!form.name || !form.daily_rate) return toast.error("Name & wage required");
+    if (!accountScope) return toast.error("Session not ready");
     const payload = { ...form, daily_rate: parseFloat(form.daily_rate), worker_type: form.worker_type || "regular" };
     try {
-      if (editing) await axios.put(`${API}/workers/${editing.id}`, payload);
-      else await axios.post(`${API}/workers`, payload);
+      if (editing) await updateWorker(accountScope, editing.id, payload);
+      else await createWorker(accountScope, payload);
       setOpen(false); setEditing(null); setForm(empty);
       toast.success(t("saved"));
       load();

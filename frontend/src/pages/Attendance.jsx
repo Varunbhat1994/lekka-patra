@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import axios from "axios";
+import { listWorkers, listAttendanceByDate, saveAttendance } from "@/offline";
 import AppShell from "@/components/AppShell";
 import TrialBanner from "@/components/TrialBanner";
 import { useApp } from "@/context/AppContext";
@@ -43,7 +43,7 @@ function isDirty(server, draft) {
 }
 
 export default function Attendance() {
-  const { t, lang, user, API } = useApp();
+  const { t, lang, user, API, accountScope, isOnline } = useApp();
   const locked = false;
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [workers, setWorkers] = useState([]);
@@ -58,21 +58,22 @@ export default function Attendance() {
   }, []);
 
   const load = useCallback(async () => {
+    if (!accountScope) return;
     const [w, a] = await Promise.all([
-      axios.get(`${API}/workers`),
-      axios.get(`${API}/attendance`, { params: { date } }),
+      listWorkers(accountScope),
+      listAttendanceByDate(accountScope, date),
     ]);
-    setWorkers(w.data);
+    setWorkers(w);
     const srv = {};
-    a.data.forEach(x => { srv[x.worker_id] = x; });
+    a.forEach(x => { srv[x.worker_id] = x; });
     setServer(srv);
     // Reset drafts to server state on every reload.
     const d = {};
-    w.data.forEach(worker => { d[worker.id] = normalize(srv[worker.id]); });
+    w.forEach(worker => { d[worker.id] = normalize(srv[worker.id]); });
     setDrafts(d);
-  }, [API, date]);
+  }, [accountScope, date]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, isOnline]);
 
   const setDraft = (workerId, patch) => {
     if (locked) return;
@@ -120,7 +121,7 @@ export default function Attendance() {
         field_crop: d.field_crop || "",
         description: d.description || "",
       };
-      await axios.post(`${API}/attendance`, payload);
+      await saveAttendance(accountScope, payload);
       // On success: rehydrate server snapshot for this worker only.
       setServer(prev => ({
         ...prev,

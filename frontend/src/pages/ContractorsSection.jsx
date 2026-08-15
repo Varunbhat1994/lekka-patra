@@ -15,12 +15,13 @@ import {
   Users, Wallet, X, ArrowLeft, FilePdf, ArrowUUpLeft, ClockCounterClockwise, Check,
 } from "@phosphor-icons/react";
 import { fmtDate } from "@/lib/formatDate";
+import { listContractors, createContractor } from "@/offline";
 
 const emptyContractor = { name: "", mobile: "", notes: "" };
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function ContractorsSection() {
-  const { t, user, API, lang } = useApp();
+  const { t, user, API, lang, accountScope, isOnline } = useApp();
   const nav = useNavigate();
   const locked = false;
   const [contractors, setContractors] = useState([]);
@@ -28,19 +29,26 @@ export default function ContractorsSection() {
   const [form, setForm] = useState(emptyContractor);
   const [detailId, setDetailId] = useState(null);
 
-  const load = () => axios.get(`${API}/contractors`).then(r => setContractors(r.data));
-  useEffect(() => { load(); }, []);
+  const load = async () => {
+    if (!accountScope) return;
+    try { setContractors(await listContractors(accountScope)); }
+    catch { /* fallback handled inside listContractors */ }
+  };
+  useEffect(() => { load(); }, [accountScope, isOnline]);
 
   const save = async () => {
     if (!form.name) return toast.error(lang === "kn" ? "ಹೆಸರು ಬೇಕು" : "Name required");
+    if (!accountScope) return toast.error("Session not ready");
     try {
-      await axios.post(`${API}/contractors`, form);
+      await createContractor(accountScope, form);
       setAddOpen(false); setForm(emptyContractor);
       toast.success(t("saved"));
       load();
     } catch { toast.error("Failed"); }
   };
 
+  // Contractor delete remains ONLINE-ONLY per Session 3 scope. Do not
+  // route this through the offline data layer.
   const del = async (c) => {
     if (!window.confirm(`Delete ${c.name}?`)) return;
     await axios.delete(`${API}/contractors/${c.id}`);

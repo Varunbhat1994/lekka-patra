@@ -26,3 +26,8 @@ export {
   runHydration, getHydrationProgress, getLocalAccount,
   isOfflineReady, markLastOnline, HYDRATION_STEPS,
 } from "./hydration";
+export {
+  listWorkers, createWorker, updateWorker,
+  listContractors, createContractor, updateContractor,
+  listAttendanceByDate, saveAttendance,
+} from "./dataLayer";

@@ -67,6 +67,11 @@ class AttendanceIn(BaseModel):
     manual_wage: Optional[float] = None
     field_crop: Optional[str] = ""
     description: Optional[str] = ""
+    # Optional client-captured wage rate at the moment attendance was
+    # entered. Used ONLY on INSERT (see upsert_attendance). On UPDATE
+    # this field is explicitly excluded from the $set so the existing
+    # PRESERVE-snapshot invariant remains bit-for-bit unchanged.
+    daily_rate_snapshot: Optional[float] = None
 
 
 # ---------------- Routes ----------------
@@ -112,6 +117,18 @@ async def upsert_attendance(a: AttendanceIn, user: dict = Depends(require_write_
             raise HTTPException(400, "overtime_amount cannot be negative")
         if a.overtime_amount > max_cap:
             raise HTTPException(400, f"overtime_amount exceeds allowed maximum ({max_cap})")
+    # Client-supplied daily_rate_snapshot validation (used only on INSERT).
+    # Reject NaN, infinite, negative, or over-cap values so a hostile /
+    # buggy client cannot corrupt historical wage data.
+    import math as _math
+    client_snapshot: Optional[float] = a.daily_rate_snapshot
+    if client_snapshot is not None:
+        if _math.isnan(client_snapshot) or _math.isinf(client_snapshot):
+            raise HTTPException(400, "daily_rate_snapshot must be a finite number")
+        if client_snapshot < 0:
+            raise HTTPException(400, "daily_rate_snapshot cannot be negative")
+        if client_snapshot > max_cap:
+            raise HTTPException(400, f"daily_rate_snapshot exceeds allowed maximum ({max_cap})")
     # Upsert per (worker_id, date). NOTE: `daily_rate_snapshot` is written
     # ONLY on the first insert for this (worker_id, date). If the row
     # already exists, we update fields the client sent (status, hours,
@@ -122,15 +139,29 @@ async def upsert_attendance(a: AttendanceIn, user: dict = Depends(require_write_
         "user_id": user["user_id"], "worker_id": a.worker_id, "date": a.date
     }, {"_id": 0})
     if existing:
+        # Explicitly strip daily_rate_snapshot from the update payload so
+        # the preserve-on-update invariant is IMPOSSIBLE to break even if
+        # the client sent a value.
+        update_doc = a.model_dump(exclude={"daily_rate_snapshot"})
         await db.attendance.update_one(
             {"id": existing["id"]},
-            {"$set": a.model_dump()},
+            {"$set": update_doc},
         )
         return {"ok": True, "id": existing["id"]}
+    # INSERT branch: prefer client-provided snapshot (offline entry-time
+    # capture) when present and valid; else fall back to the worker's
+    # current daily_rate (existing online behavior, bit-for-bit).
+    snapshot_value = (
+        float(client_snapshot)
+        if client_snapshot is not None
+        else float(worker["daily_rate"])
+    )
+    # Model excludes the client's field from the spread so the
+    # server-side snapshot argument is the single source of truth.
     obj = Attendance(
         user_id=user["user_id"],
-        daily_rate_snapshot=float(worker["daily_rate"]),
-        **a.model_dump(),
+        daily_rate_snapshot=snapshot_value,
+        **a.model_dump(exclude={"daily_rate_snapshot"}),
     )
     doc = obj.model_dump()
     doc["created_at"] = doc["created_at"].isoformat()
