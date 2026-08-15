@@ -22,3 +22,7 @@ export {
   uuid,
 } from "./repo";
 export { computeAccountScope } from "./accountScope";
+export {
+  runHydration, getHydrationProgress, getLocalAccount,
+  isOfflineReady, markLastOnline, HYDRATION_STEPS,
+} from "./hydration";
