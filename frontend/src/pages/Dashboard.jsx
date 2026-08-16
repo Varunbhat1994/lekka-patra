@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import AppShell from "@/components/AppShell";
 import FeedbackBell from "@/components/FeedbackBell";
@@ -89,6 +90,7 @@ function LeafDecor({ className = "" }) {
 
 export default function Dashboard() {
   const { t, user, API, lang } = useApp();
+  const nav = useNavigate();
   const [data, setData] = useState(null);
   // Local-time greeting; re-check every minute so it flips at 05:00 / 12:00
   // / 17:00 / 21:00 boundaries without a manual refresh.
@@ -165,10 +167,12 @@ export default function Dashboard() {
 
         <AttendanceCalendar />
 
-        {/* Agri Expenses Coming Soon — warm illustrated card */}
-        <div
+        {/* Agri Expenses — tappable entry point to /agri-expenses. */}
+        <button
+          type="button"
           data-testid="agri-expenses-coming-soon"
-          className="relative overflow-hidden rounded-2xl border border-[hsl(45_60%_82%)] p-3"
+          onClick={() => nav("/agri-expenses")}
+          className="relative overflow-hidden rounded-2xl border border-[hsl(45_60%_82%)] p-3 text-left w-full active:scale-[0.995] transition-transform"
           style={{
             background:
               "linear-gradient(180deg, hsl(45 65% 96%) 0%, hsl(35 60% 92%) 100%)",
@@ -187,22 +191,19 @@ export default function Dashboard() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-[10px] uppercase tracking-[0.22em] text-[hsl(35_60%_40%)] font-semibold">
-                Agri Expenses
+                {lang === "kn" ? "ಕೃಷಿ ವೆಚ್ಚಗಳು" : "Agri Expenses"}
               </div>
               <div className="mt-0.5 text-2xl font-bold text-[hsl(30_45%_25%)]">
-                Coming Soon
+                {lang === "kn" ? "ನನ್ನ ಕೃಷಿ" : "My Farm"}
               </div>
               <div className="mt-0.5 text-xs text-[hsl(30_25%_40%)] max-w-[60%]">
                 {lang === "kn"
-                  ? "ನಿಮ್ಮ ಕೃಷಿ ವೆಚ್ಚಗಳನ್ನು ಒಂದೇ ಸ್ಥಳದಲ್ಲಿ ನಿರ್ವಹಿಸಿ"
-                  : "Manage your farm expenses in one place"}
+                  ? "ಕೊಯ್ಲು, ಸಿಂಪಡಣೆ, ಸಾಗಣೆ ಮತ್ತು ಇತರ"
+                  : "Harvesting, spray, transport & more"}
               </div>
             </div>
-            <span className="ml-2 shrink-0 self-start px-2 py-1 rounded-full bg-[hsl(35_75%_88%)] text-[hsl(30_60%_35%)] text-[9px] uppercase font-bold tracking-wider">
-              Coming Soon
-            </span>
           </div>
-        </div>
+        </button>
       </div>
     </AppShell>
   );
