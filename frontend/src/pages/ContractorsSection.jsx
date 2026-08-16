@@ -15,7 +15,13 @@ import {
   Users, Wallet, X, ArrowLeft, FilePdf, ArrowUUpLeft, ClockCounterClockwise, Check,
 } from "@phosphor-icons/react";
 import { fmtDate } from "@/lib/formatDate";
-import { listContractors, createContractor } from "@/offline";
+import {
+  listContractors, createContractor,
+  createContractorVisit, deleteContractorVisit,
+  createContractorPayment, deleteContractorPayment,
+  createContractorReturn, deleteContractorReturn,
+  getContractorLedgerWithLocal,
+} from "@/offline";
 
 const emptyContractor = { name: "", mobile: "", notes: "" };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -168,7 +174,7 @@ export default function ContractorsSection() {
 
 // -------- Contractor detail sheet with two tabs --------
 function ContractorDetail({ id, onClose }) {
-  const { API, user, lang, t } = useApp();
+  const { API, user, lang, t, accountScope, isOnline } = useApp();
   const nav = useNavigate();
   const locked = false;
   const [data, setData] = useState(null);
@@ -177,48 +183,66 @@ function ContractorDetail({ id, onClose }) {
   const [payMode, setPayMode] = useState("payment"); // "payment" | "return"
   const [payForm, setPayForm] = useState({ date: today(), amount: "", method: "cash", notes: "" });
 
-  const load = () => axios.get(`${API}/contractors/${id}/ledger`).then(r => setData(r.data));
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+  const load = async () => {
+    if (!accountScope) return;
+    // getContractorLedgerWithLocal returns the server ledger unioned
+    // with any local-only rows in IDB, so a just-created offline visit /
+    // payment / return is immediately visible without a round-trip.
+    const d = await getContractorLedgerWithLocal(accountScope, id);
+    if (d) setData(d);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id, accountScope, isOnline]);
 
   const addVisit = async () => {
     if (!visitForm.workers_count) return toast.error(lang === "kn" ? "ಸಂಖ್ಯೆ ಬೇಕು" : "Count required");
-    await axios.post(`${API}/contractor-visits`, {
+    const form = {
       contractor_id: id,
       date: visitForm.date,
       workers_count: parseInt(visitForm.workers_count, 10) || 0,
       field_crop: visitForm.field_crop,
       notes: visitForm.notes,
-    });
-    setVisitForm({ date: today(), workers_count: "", field_crop: "", notes: "" });
-    toast.success(t("saved"));
-    load();
+    };
+    try {
+      const res = await createContractorVisit(accountScope, form);
+      setVisitForm({ date: today(), workers_count: "", field_crop: "", notes: "" });
+      toast.success(res?.queued
+        ? (lang === "kn" ? "ಆಫ್‌ಲೈನ್ · ಸಿಂಕ್ ಪೆಂಡಿಂಗ್" : "Saved offline · will sync")
+        : t("saved"));
+      load();
+    } catch { toast.error("Failed"); }
   };
 
   const addPayment = async () => {
     if (!payForm.amount) return toast.error(lang === "kn" ? "ಮೊತ್ತ ಬೇಕು" : "Amount required");
-    const path = payMode === "return" ? "/contractor-returns" : "/contractor-payments";
-    await axios.post(`${API}${path}`, {
+    const form = {
       contractor_id: id,
       date: payForm.date,
       amount: parseFloat(payForm.amount),
       method: payForm.method,
       notes: payForm.notes,
-    });
-    setPayForm({ date: today(), amount: "", method: "cash", notes: "" });
-    toast.success(t("saved"));
-    load();
+    };
+    try {
+      const res = payMode === "return"
+        ? await createContractorReturn(accountScope, form)
+        : await createContractorPayment(accountScope, form);
+      setPayForm({ date: today(), amount: "", method: "cash", notes: "" });
+      toast.success(res?.queued
+        ? (lang === "kn" ? "ಆಫ್‌ಲೈನ್ · ಸಿಂಕ್ ಪೆಂಡಿಂಗ್" : "Saved offline · will sync")
+        : t("saved"));
+      load();
+    } catch { toast.error("Failed"); }
   };
 
   const delVisit = async (vid) => {
-    await axios.delete(`${API}/contractor-visits/${vid}`);
+    await deleteContractorVisit(accountScope, vid);
     load();
   };
   const delPayment = async (pid) => {
-    await axios.delete(`${API}/contractor-payments/${pid}`);
+    await deleteContractorPayment(accountScope, pid);
     load();
   };
   const delReturn = async (rid) => {
-    await axios.delete(`${API}/contractor-returns/${rid}`);
+    await deleteContractorReturn(accountScope, rid);
     load();
   };
 

@@ -69,6 +69,9 @@ class VisitIn(BaseModel):
     workers_count: int
     field_crop: Optional[str] = ""
     notes: Optional[str] = ""
+    # Client-supplied idempotency key from the offline sync queue.
+    # Optional so existing online callers are unaffected.
+    operation_id: Optional[str] = None
 
 
 class ContractorPaymentIn(BaseModel):
@@ -77,6 +80,7 @@ class ContractorPaymentIn(BaseModel):
     amount: float
     method: str = "cash"
     notes: Optional[str] = ""
+    operation_id: Optional[str] = None
 
 
 class ContractorReturnIn(BaseModel):
@@ -85,6 +89,7 @@ class ContractorReturnIn(BaseModel):
     amount: float
     method: str = "cash"
     notes: Optional[str] = ""
+    operation_id: Optional[str] = None
 
 
 # ---------------- Contractors ----------------
@@ -146,25 +151,27 @@ async def list_visits(contractor_id: str, user: dict = Depends(get_current_user)
 
 @router.post("/contractor-visits")
 async def add_visit(v: VisitIn, user: dict = Depends(require_write_access)):
-    # Reject visits for contractors the caller doesn't own — prevents
-    # orphan rows and cross-account writes.
-    if not await db.contractors.find_one(
-        {"id": v.contractor_id, "user_id": user["user_id"]}, {"_id": 1}
-    ):
-        raise HTTPException(404, "Contractor not found")
-    doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["user_id"],
-        "contractor_id": v.contractor_id,
-        "date": v.date,
-        "workers_count": int(v.workers_count),
-        "field_crop": v.field_crop or "",
-        "notes": v.notes or "",
-        "created_at": _now_utc().isoformat(),
-    }
-    await db.contractor_visits.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
+    async def do():
+        # Reject visits for contractors the caller doesn't own — prevents
+        # orphan rows and cross-account writes.
+        if not await db.contractors.find_one(
+            {"id": v.contractor_id, "user_id": user["user_id"]}, {"_id": 1}
+        ):
+            raise HTTPException(404, "Contractor not found")
+        doc = {
+            "id": str(uuid.uuid4()),
+            "user_id": user["user_id"],
+            "contractor_id": v.contractor_id,
+            "date": v.date,
+            "workers_count": int(v.workers_count),
+            "field_crop": v.field_crop or "",
+            "notes": v.notes or "",
+            "created_at": _now_utc().isoformat(),
+        }
+        await db.contractor_visits.insert_one(doc)
+        doc.pop("_id", None)
+        return doc
+    return await idempotent(user["user_id"], v.operation_id, "contractor_visits", do)
 
 
 @router.delete("/contractor-visits/{vid}")
@@ -185,23 +192,25 @@ async def list_cpayments(contractor_id: str, user: dict = Depends(get_current_us
 
 @router.post("/contractor-payments")
 async def add_cpayment(p: ContractorPaymentIn, user: dict = Depends(require_write_access)):
-    if not await db.contractors.find_one(
-        {"id": p.contractor_id, "user_id": user["user_id"]}, {"_id": 1}
-    ):
-        raise HTTPException(404, "Contractor not found")
-    doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["user_id"],
-        "contractor_id": p.contractor_id,
-        "date": p.date,
-        "amount": float(p.amount),
-        "method": p.method,
-        "notes": p.notes or "",
-        "created_at": _now_utc().isoformat(),
-    }
-    await db.contractor_payments.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
+    async def do():
+        if not await db.contractors.find_one(
+            {"id": p.contractor_id, "user_id": user["user_id"]}, {"_id": 1}
+        ):
+            raise HTTPException(404, "Contractor not found")
+        doc = {
+            "id": str(uuid.uuid4()),
+            "user_id": user["user_id"],
+            "contractor_id": p.contractor_id,
+            "date": p.date,
+            "amount": float(p.amount),
+            "method": p.method,
+            "notes": p.notes or "",
+            "created_at": _now_utc().isoformat(),
+        }
+        await db.contractor_payments.insert_one(doc)
+        doc.pop("_id", None)
+        return doc
+    return await idempotent(user["user_id"], p.operation_id, "contractor_payments", do)
 
 
 @router.delete("/contractor-payments/{pid}")
@@ -222,23 +231,25 @@ async def list_creturns(contractor_id: str, user: dict = Depends(get_current_use
 
 @router.post("/contractor-returns")
 async def add_creturn(r: ContractorReturnIn, user: dict = Depends(require_write_access)):
-    if not await db.contractors.find_one(
-        {"id": r.contractor_id, "user_id": user["user_id"]}, {"_id": 1}
-    ):
-        raise HTTPException(404, "Contractor not found")
-    doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["user_id"],
-        "contractor_id": r.contractor_id,
-        "date": r.date,
-        "amount": float(r.amount),
-        "method": r.method,
-        "notes": r.notes or "",
-        "created_at": _now_utc().isoformat(),
-    }
-    await db.contractor_returns.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
+    async def do():
+        if not await db.contractors.find_one(
+            {"id": r.contractor_id, "user_id": user["user_id"]}, {"_id": 1}
+        ):
+            raise HTTPException(404, "Contractor not found")
+        doc = {
+            "id": str(uuid.uuid4()),
+            "user_id": user["user_id"],
+            "contractor_id": r.contractor_id,
+            "date": r.date,
+            "amount": float(r.amount),
+            "method": r.method,
+            "notes": r.notes or "",
+            "created_at": _now_utc().isoformat(),
+        }
+        await db.contractor_returns.insert_one(doc)
+        doc.pop("_id", None)
+        return doc
+    return await idempotent(user["user_id"], r.operation_id, "contractor_returns", do)
 
 
 @router.delete("/contractor-returns/{rid}")

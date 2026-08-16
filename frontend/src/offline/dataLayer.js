@@ -678,3 +678,303 @@ export async function getCalendarDate(scope, date) {
   }
 }
 
+
+// ---------- CONTRACTOR VISITS / PAYMENTS / RETURNS ---------------------
+//
+// Same offline-first pattern as advances/returns:
+//   online  → POST /server → mirror {local_id, server_id} into IDB.
+//   offline → assign local_id, write to IDB with sync_status=local_only,
+//             enqueue one create op with operation_id + local_ref.
+// Delete follows the advance/return convention:
+//   * local-only row → drop IDB + cancel pending create op.
+//   * synced row     → mark pending_delete + enqueue delete op.
+//
+// Backend routes already carry the (contractor_id, user_id) ownership
+// check inside the idempotent(...) block, so replayed ops after network
+// glitches are safe. See routes/contractors.py add_visit/add_cpayment/
+// add_creturn.
+//
+// Nothing here needs a new isolation mechanism: every put() call routes
+// through repo.js which stamps account_scope. Cross-account leaks are
+// mechanically prevented by the by_scope_contractor index.
+
+// -- visits ------------------------------------------------------------
+
+export async function listContractorVisits(scope, contractor_id) {
+  requireScope(scope);
+  try {
+    const { data } = await axios.get(`${API}/contractor-visits`, {
+      params: { contractor_id },
+    });
+    const rows = (data || []).map((v) => ({
+      local_id: v.id, server_id: v.id, ...v, sync_status: "synced",
+    }));
+    await putAll(STORES.CONTRACTOR_VISITS, scope, rows);
+    return data || [];
+  } catch (err) {
+    const all = await listByScope(STORES.CONTRACTOR_VISITS, scope);
+    return all
+      .filter((r) => r.contractor_id === contractor_id && r.sync_status !== "pending_delete")
+      .map(stripLocalMeta);
+  }
+}
+
+export async function createContractorVisit(scope, form) {
+  requireScope(scope);
+  try {
+    const { data } = await axios.post(`${API}/contractor-visits`, form);
+    await put(STORES.CONTRACTOR_VISITS, scope, {
+      local_id: data.id, server_id: data.id, ...data, sync_status: "synced",
+    });
+    return data;
+  } catch (err) {
+    const local_id = uuid();
+    const row = {
+      local_id, server_id: null, ...form,
+      created_at: nowIso(), sync_status: "local_only",
+    };
+    await put(STORES.CONTRACTOR_VISITS, scope, row);
+    await enqueue(scope, "contractor_visits", "create", form, { local_ref: local_id });
+    return { id: local_id, ...form, created_at: row.created_at, queued: true };
+  }
+}
+
+export async function deleteContractorVisit(scope, id) {
+  requireScope(scope);
+  return _deleteContractorRow(
+    scope, id,
+    STORES.CONTRACTOR_VISITS, "contractor_visits",
+    `/contractor-visits`,
+  );
+}
+
+// -- payments ----------------------------------------------------------
+
+export async function listContractorPayments(scope, contractor_id) {
+  requireScope(scope);
+  try {
+    const { data } = await axios.get(`${API}/contractor-payments`, {
+      params: { contractor_id },
+    });
+    const rows = (data || []).map((p) => ({
+      local_id: p.id, server_id: p.id, ...p, sync_status: "synced",
+    }));
+    await putAll(STORES.CONTRACTOR_PAYMENTS, scope, rows);
+    return data || [];
+  } catch (err) {
+    const all = await listByScope(STORES.CONTRACTOR_PAYMENTS, scope);
+    return all
+      .filter((r) => r.contractor_id === contractor_id && r.sync_status !== "pending_delete")
+      .map(stripLocalMeta);
+  }
+}
+
+export async function createContractorPayment(scope, form) {
+  requireScope(scope);
+  try {
+    const { data } = await axios.post(`${API}/contractor-payments`, form);
+    await put(STORES.CONTRACTOR_PAYMENTS, scope, {
+      local_id: data.id, server_id: data.id, ...data, sync_status: "synced",
+    });
+    return data;
+  } catch (err) {
+    const local_id = uuid();
+    const row = {
+      local_id, server_id: null, ...form,
+      created_at: nowIso(), sync_status: "local_only",
+    };
+    await put(STORES.CONTRACTOR_PAYMENTS, scope, row);
+    await enqueue(scope, "contractor_payments", "create", form, { local_ref: local_id });
+    return { id: local_id, ...form, created_at: row.created_at, queued: true };
+  }
+}
+
+export async function deleteContractorPayment(scope, id) {
+  requireScope(scope);
+  return _deleteContractorRow(
+    scope, id,
+    STORES.CONTRACTOR_PAYMENTS, "contractor_payments",
+    `/contractor-payments`,
+  );
+}
+
+// -- returns -----------------------------------------------------------
+
+export async function listContractorReturns(scope, contractor_id) {
+  requireScope(scope);
+  try {
+    const { data } = await axios.get(`${API}/contractor-returns`, {
+      params: { contractor_id },
+    });
+    const rows = (data || []).map((r) => ({
+      local_id: r.id, server_id: r.id, ...r, sync_status: "synced",
+    }));
+    await putAll(STORES.CONTRACTOR_RETURNS, scope, rows);
+    return data || [];
+  } catch (err) {
+    const all = await listByScope(STORES.CONTRACTOR_RETURNS, scope);
+    return all
+      .filter((r) => r.contractor_id === contractor_id && r.sync_status !== "pending_delete")
+      .map(stripLocalMeta);
+  }
+}
+
+export async function createContractorReturn(scope, form) {
+  requireScope(scope);
+  try {
+    const { data } = await axios.post(`${API}/contractor-returns`, form);
+    await put(STORES.CONTRACTOR_RETURNS, scope, {
+      local_id: data.id, server_id: data.id, ...data, sync_status: "synced",
+    });
+    return data;
+  } catch (err) {
+    const local_id = uuid();
+    const row = {
+      local_id, server_id: null, ...form,
+      created_at: nowIso(), sync_status: "local_only",
+    };
+    await put(STORES.CONTRACTOR_RETURNS, scope, row);
+    await enqueue(scope, "contractor_returns", "create", form, { local_ref: local_id });
+    return { id: local_id, ...form, created_at: row.created_at, queued: true };
+  }
+}
+
+export async function deleteContractorReturn(scope, id) {
+  requireScope(scope);
+  return _deleteContractorRow(
+    scope, id,
+    STORES.CONTRACTOR_RETURNS, "contractor_returns",
+    `/contractor-returns`,
+  );
+}
+
+// Shared delete logic for the three contractor-child entities. Mirrors
+// deleteAdvance/deleteReturn: if the row is synced, mark pending_delete
+// + enqueue a delete op targeting the server_id; if it was local-only
+// and its create op is still pending, drop both.
+async function _deleteContractorRow(scope, id, store, entityType, urlPrefix) {
+  try {
+    await axios.delete(`${API}${urlPrefix}/${id}`);
+    const cached = await findByServerId(store, scope, id);
+    if (cached) await deleteByKey(store, cached.local_id);
+    return { ok: true };
+  } catch (err) {
+    const cached = await findByServerId(store, scope, id);
+    if (!cached) {
+      const db = await (await import("./db")).getDB();
+      const localRow = await db.get(store, id);
+      if (localRow && !localRow.server_id) {
+        await deleteByKey(store, id);
+        const queue = await listByScope(STORES.SYNC_QUEUE, scope);
+        for (const op of queue) {
+          if (op.entity_type === entityType
+              && op.operation_type === "create"
+              && op.local_ref === id
+              && op.sync_status !== "synced") {
+            await deleteByKey(STORES.SYNC_QUEUE, op.operation_id);
+          }
+        }
+        return { ok: true, queued: false };
+      }
+    }
+    if (cached) {
+      await put(store, scope, { ...cached, sync_status: "pending_delete" });
+      await enqueue(scope, entityType, "delete", { id }, {
+        local_ref: cached.local_id,
+        target_server_id: id,
+      });
+    }
+    return { ok: true, queued: true };
+  }
+}
+
+// -- ledger merge (offline visibility) --------------------------------
+//
+// Immediately after an offline create, the just-persisted local row
+// must be reflected in the contractor ledger view. `getContractorLedger`
+// returns the last SERVER snapshot, so we union the local-only rows on
+// top and recompute the summary totals. On the online path, the server
+// already includes the row (idempotent-safe on replay) so the union is
+// a no-op.
+export async function getContractorLedgerWithLocal(scope, contractorId, range = "") {
+  requireScope(scope);
+  const led = await getContractorLedger(scope, contractorId, range);
+  if (!led) return null;
+
+  const [localVisits, localPays, localReturns] = await Promise.all([
+    listByScope(STORES.CONTRACTOR_VISITS, scope),
+    listByScope(STORES.CONTRACTOR_PAYMENTS, scope),
+    listByScope(STORES.CONTRACTOR_RETURNS, scope),
+  ]);
+
+  // The server-side ledger row set is authoritative for anything with a
+  // server_id. Local-only rows (no server_id) are additive. Rows marked
+  // pending_delete are subtracted from the server-side lists.
+  const serverIdsInLedger = (arr) => new Set((arr || []).map((r) => r.id));
+
+  const localExtraVisits = localVisits.filter(
+    (r) => r.contractor_id === contractorId
+        && r.sync_status === "local_only"
+        && !serverIdsInLedger(led.visits).has(r.local_id),
+  ).map(stripLocalMeta);
+  const localExtraPays = localPays.filter(
+    (r) => r.contractor_id === contractorId
+        && r.sync_status === "local_only"
+        && !serverIdsInLedger(led.payments).has(r.local_id),
+  ).map(stripLocalMeta);
+  const localExtraReturns = localReturns.filter(
+    (r) => r.contractor_id === contractorId
+        && r.sync_status === "local_only"
+        && !serverIdsInLedger(led.returns).has(r.local_id),
+  ).map(stripLocalMeta);
+
+  const pendingDeleteVisitIds = new Set(
+    localVisits.filter((r) => r.sync_status === "pending_delete").map((r) => r.server_id),
+  );
+  const pendingDeletePayIds = new Set(
+    localPays.filter((r) => r.sync_status === "pending_delete").map((r) => r.server_id),
+  );
+  const pendingDeleteReturnIds = new Set(
+    localReturns.filter((r) => r.sync_status === "pending_delete").map((r) => r.server_id),
+  );
+
+  const visits = [
+    ...(led.visits || []).filter((v) => !pendingDeleteVisitIds.has(v.id)),
+    ...localExtraVisits,
+  ].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const payments = [
+    ...(led.payments || []).filter((p) => !pendingDeletePayIds.has(p.id)),
+    ...localExtraPays,
+  ].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const returns = [
+    ...(led.returns || []).filter((r) => !pendingDeleteReturnIds.has(r.id)),
+    ...localExtraReturns,
+  ].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  const total_paid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const total_returned = returns.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const total_visits = visits.length;
+  const total_workers_brought = visits.reduce(
+    (s, v) => s + Number(v.workers_count || 0), 0,
+  );
+  const net_paid = Math.max(0, total_paid - total_returned);
+  const total_settled = Number(led.total_settled || 0);
+  const final_balance = -(net_paid); // contractor branch (see services/ledger.py)
+
+  return {
+    ...led,
+    visits, payments, returns,
+    total_visits, total_workers_brought,
+    total_paid: round2(total_paid),
+    total_returned: round2(total_returned),
+    net_paid: round2(net_paid),
+    total_settled: round2(total_settled),
+    final_balance: round2(final_balance),
+    _has_local_edits:
+      localExtraVisits.length + localExtraPays.length + localExtraReturns.length
+      + pendingDeleteVisitIds.size + pendingDeletePayIds.size + pendingDeleteReturnIds.size > 0,
+  };
+}
+
+function round2(n) { return Math.round(Number(n) * 100) / 100; }
+

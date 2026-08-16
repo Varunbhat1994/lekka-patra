@@ -92,6 +92,9 @@ export async function drainQueue(accountScope) {
             : op.entity_type === "workers" ? STORES.WORKERS
             : op.entity_type === "contractors" ? STORES.CONTRACTORS
             : op.entity_type === "attendance" ? STORES.ATTENDANCE
+            : op.entity_type === "contractor_visits" ? STORES.CONTRACTOR_VISITS
+            : op.entity_type === "contractor_payments" ? STORES.CONTRACTOR_PAYMENTS
+            : op.entity_type === "contractor_returns" ? STORES.CONTRACTOR_RETURNS
             : null;
           if (store) {
             const db = await getDB();
@@ -190,6 +193,27 @@ async function executeOp(scope, op, idMap) {
     // requires_review and preserves the draft row for manual review.
     if (operation_type === "create") return (await axios.post(`${API}/settlements`, rewritten)).data;
   }
+  if (entity_type === "contractor_visits") {
+    if (operation_type === "create") return (await axios.post(`${API}/contractor-visits`, rewritten)).data;
+    if (operation_type === "delete") {
+      await axios.delete(`${API}/contractor-visits/${serverId}`);
+      return { ok: true };
+    }
+  }
+  if (entity_type === "contractor_payments") {
+    if (operation_type === "create") return (await axios.post(`${API}/contractor-payments`, rewritten)).data;
+    if (operation_type === "delete") {
+      await axios.delete(`${API}/contractor-payments/${serverId}`);
+      return { ok: true };
+    }
+  }
+  if (entity_type === "contractor_returns") {
+    if (operation_type === "create") return (await axios.post(`${API}/contractor-returns`, rewritten)).data;
+    if (operation_type === "delete") {
+      await axios.delete(`${API}/contractor-returns/${serverId}`);
+      return { ok: true };
+    }
+  }
   throw new Error(`unknown op ${entity_type}/${operation_type}`);
 }
 
@@ -204,6 +228,9 @@ async function mirrorServerId(scope, entityType, localId, serverId, serverRow) {
                   : entityType === "advances" ? STORES.ADVANCES
                   : entityType === "advance_returns" ? STORES.ADVANCE_RETURNS
                   : entityType === "settlements" ? STORES.SETTLEMENTS
+                  : entityType === "contractor_visits" ? STORES.CONTRACTOR_VISITS
+                  : entityType === "contractor_payments" ? STORES.CONTRACTOR_PAYMENTS
+                  : entityType === "contractor_returns" ? STORES.CONTRACTOR_RETURNS
                   : null;
   if (!storeName) return;
   const db = await getDB();

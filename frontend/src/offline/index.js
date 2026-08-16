@@ -35,5 +35,9 @@ export {
   saveSettlement,
   getWorkerLedger, getContractorLedger, getDashboardSnapshot,
   getCalendarMonth, getCalendarDate,
+  listContractorVisits, createContractorVisit, deleteContractorVisit,
+  listContractorPayments, createContractorPayment, deleteContractorPayment,
+  listContractorReturns, createContractorReturn, deleteContractorReturn,
+  getContractorLedgerWithLocal,
 } from "./dataLayer";
 export { drainQueue, installSyncTriggers } from "./syncEngine";
