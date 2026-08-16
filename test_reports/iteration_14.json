@@ -1,0 +1,33 @@
+{
+  "summary": "Backend-only verification of the two new P0 offline-sync checkpoints: (§1) POST /advances + POST /returns idempotency via operation_id, and (§2) POST /settlements with client_earned_snapshot / client_advance_snapshot revalidation + operation_id replay-safety. Wrote a new pytest suite /app/backend/tests/test_offline_sync_idempotency.py with 14 focused tests covering every scenario the review_request lists. All 14 pass in 2.45s against the live backend at REACT_APP_BACKEND_URL/api. Every test seeds an ephemeral user + session_token via Motor (same pattern as final_freeze_verification.py) and cleans up all collections (including sync_ops) in teardown. Assertions go beyond status code: for each idempotent replay we assert the returned id equals the first call AND count the affected DB collection to confirm exactly one row; for the 409 mismatch we assert detail.code=='settlement_revalidation_failed', that client and server sub-dicts are present with the exact numeric values, AND that db.settlements / db.advance_returns / db.advances counts are unchanged. The overpay path (mode=actual_paid, actual_paid=1500 vs earned=1000) is replay-tested to confirm exactly one auto-advance row with settlement_id set. The adjust_advance draft path is replay-tested to confirm exactly one auto-return row. Regression coverage: attendance operation_id replay + preservation of daily_rate_snapshot on update (server ignores client-sent snapshot on the update branch even when different from insert-time value), workers create idempotency, contractors create idempotency. NOTE on test_accounting_audit.py: running it under the repo's pytest.ini fails 62/62 with 'async def functions are not natively supported' — this is a PRE-EXISTING harness issue (module uses bare async def with no @pytest.mark.asyncio in STRICT mode) unrelated to this iteration; prior iteration_12 note claimed it passes but that would require anyio-mode or a different runner. Flagging as an infra issue only; the source ledger.py logic under test is exercised indirectly and correctly by the new offline-sync suite via /api/settlements revalidation.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "tests/test_accounting_audit.py", "issue": "62 tests fail to COLLECT under pytest.ini (asyncio STRICT + no @pytest.mark.asyncio markers) — pre-existing, not caused by this iteration. Suggest adding pytest.mark.asyncio markers or switching to anyio-mode."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_offline_sync_idempotency.py",
+    "/app/test_reports/pytest/iter14_offline_sync.xml"
+  ],
+  "action_items": [
+    "(Optional) Add @pytest.mark.asyncio to test_accounting_audit.py OR switch pytest asyncio_mode to auto so the 62-test regression can be executed by future testing agents."
+  ],
+  "critical_code_review_comments": [
+    "routes/settlements.py _revalidate_client_snapshot correctly no-ops when both snapshot fields are None (preserves bit-for-bit online path). Tolerance _LEDGER_TOLERANCE=0.01 is applied per-field with abs(); logic is sound.",
+    "routes/settlements.py wraps the entire _settle_body inside idempotent(), so a replay with the same operation_id returns the cached response WITHOUT re-running compute_worker_ledger — this correctly prevents double auto-advance/auto-return writes even when the ledger has shifted between replays. Verified with mode=actual_paid overpay: only 1 auto-advance row after 2 identical POSTs.",
+    "routes/advances.py POST /advances and POST /returns: idempotent wrapping preserves 404-on-unowned-worker semantics because the ownership check happens inside do() — verified indirectly (worker seed is per-user).",
+    "routes/attendance.py upsert_attendance correctly strips daily_rate_snapshot from the $set on the update branch — regression test confirms an update with client-supplied snapshot=900 does NOT overwrite the entry-time 500. Idempotency wrapper sits AROUND the upsert so a replayed operation_id also cannot cause a second update pass.",
+    "services/sync_ops.py: unique compound index (operation_id, user_id) + TTL on expires_at + DuplicateKeyError swallow gives correct race semantics. _jsonable handles datetimes and Pydantic models — the cached response is JSON-safe for FastAPI's response encoder on replay.",
+    "Minor: response_snapshot cached in sync_ops includes datetime as ISO string via _jsonable, so replayed /advances response is a dict with created_at as ISO string, while the first call returns an Advance model (FastAPI serializes both to identical JSON) — behavior is consistent to the HTTP client, verified in tests."
+  ],
+  "updated_files": ["/app/backend/tests/test_offline_sync_idempotency.py"],
+  "success_rate": {"backend": "100% (14/14 offline-sync + revalidation tests)", "frontend": "not tested (backend-only per review request)"},
+  "test_credentials": "Ephemeral per-test: uid=osi_<hex8>, session_token=<hex64>. Cleaned up in fixture teardown.",
+  "seed_data_creation": "Per-test: 1 user, 1 user_session, 1 worker (daily_rate 500 or 1000), plus scenario-specific attendance/advances/returns/settlements. All collections (users, user_sessions, workers, attendance, advances, advance_returns, settlements, contractors, sync_ops) are cleaned by user_id in teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The new pytest file /app/backend/tests/test_offline_sync_idempotency.py is the canonical regression harness for offline-sync semantics. Uses sync test functions that drive httpx.AsyncClient via asyncio.get_event_loop().run_until_complete() so it plays nicely with pytest-xdist loadscope + STRICT asyncio mode (no plugin required). BASE URL is derived from REACT_APP_BACKEND_URL env var and appends /api. Auth pattern: seed users + user_sessions collections directly, then Authorization: Bearer <session_token>. Idempotency cache lives in db.sync_ops — remember to clean it up per user_id when writing new tests. Pre-existing infra bug in test_accounting_audit.py should be reported separately.",
+  "rca of the issue": "N/A — no bugs reproduced. All P0 offline-sync behavior matches the review_request contract: operation_id replay returns cached response with identical id and zero duplicate DB writes; distinct operation_ids create distinct rows; absent operation_id preserves the legacy dup-allowed behavior; snapshot match within 0.01 finalizes; snapshot divergence returns HTTP 409 with the exact detail.code and structure, and leaves the DB untouched; the no-snapshot online path is bit-for-bit unchanged."
+}
