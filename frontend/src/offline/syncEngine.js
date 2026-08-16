@@ -83,6 +83,21 @@ export async function drainQueue(accountScope) {
           idMap.set(op.local_ref, result.id);
           await mirrorServerId(accountScope, op.entity_type, op.local_ref, result.id, result);
         }
+        // For successful delete ops, drop the local mirror so lists
+        // don't keep showing a "pending_delete" ghost row forever.
+        if (op.operation_type === "delete" && op.local_ref) {
+          const store =
+            op.entity_type === "advances" ? STORES.ADVANCES
+            : op.entity_type === "advance_returns" ? STORES.ADVANCE_RETURNS
+            : op.entity_type === "workers" ? STORES.WORKERS
+            : op.entity_type === "contractors" ? STORES.CONTRACTORS
+            : op.entity_type === "attendance" ? STORES.ATTENDANCE
+            : null;
+          if (store) {
+            const db = await getDB();
+            await db.delete(store, op.local_ref);
+          }
+        }
         summary.synced += 1;
       } catch (err) {
         const status = err?.response?.status;
@@ -154,6 +169,20 @@ async function executeOp(scope, op, idMap) {
     // POST /attendance handles both insert and update via upsert.
     return (await axios.post(`${API}/attendance`, rewritten)).data;
   }
+  if (entity_type === "advances") {
+    if (operation_type === "create") return (await axios.post(`${API}/advances`, rewritten)).data;
+    if (operation_type === "delete") {
+      await axios.delete(`${API}/advances/${serverId}`);
+      return { ok: true };
+    }
+  }
+  if (entity_type === "advance_returns") {
+    if (operation_type === "create") return (await axios.post(`${API}/returns`, rewritten)).data;
+    if (operation_type === "delete") {
+      await axios.delete(`${API}/returns/${serverId}`);
+      return { ok: true };
+    }
+  }
   throw new Error(`unknown op ${entity_type}/${operation_type}`);
 }
 
@@ -165,6 +194,8 @@ async function mirrorServerId(scope, entityType, localId, serverId, serverRow) {
   const storeName = entityType === "workers" ? STORES.WORKERS
                   : entityType === "contractors" ? STORES.CONTRACTORS
                   : entityType === "attendance" ? STORES.ATTENDANCE
+                  : entityType === "advances" ? STORES.ADVANCES
+                  : entityType === "advance_returns" ? STORES.ADVANCE_RETURNS
                   : null;
   if (!storeName) return;
   const db = await getDB();

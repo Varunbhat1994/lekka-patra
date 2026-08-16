@@ -11,9 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "sonner";
 import { CaretRight, User, Wallet, ClockCounterClockwise, FilePdf, Plus, ArrowUUpLeft, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
+import { createAdvance, createReturn } from "@/offline";
 
 export default function Ledger() {
-  const { t, user, API, lang } = useApp();
+  const { t, user, API, lang, accountScope, isOnline } = useApp();
   const nav = useNavigate();
   const locked = false;
   // Match the Attendance/Workers warm peach background on this page.
@@ -71,17 +72,28 @@ export default function Ledger() {
   };
   const saveAdvance = async () => {
     if (!adv.amount) return toast.error("Amount required");
-    const path = mode === "return" ? "/returns" : "/advances";
+    const form = {
+      worker_id: selected.id,
+      date: adv.date,
+      amount: parseFloat(adv.amount),
+      method: adv.method,
+      notes: adv.notes,
+    };
     try {
-      await axios.post(`${API}${path}`, {
-        worker_id: selected.id,
-        date: adv.date,
-        amount: parseFloat(adv.amount),
-        method: adv.method,
-        notes: adv.notes,
-      });
+      const res = mode === "return"
+        ? await createReturn(accountScope, form)
+        : await createAdvance(accountScope, form);
       setAdvOpen(false);
-      toast.success(mode === "return" ? (lang === "kn" ? "ವಾಪಸಾತಿ ಉಳಿಸಲಾಗಿದೆ" : "Return saved") : t("saved"));
+      const queued = res?.queued === true;
+      const okMsg = mode === "return"
+        ? (lang === "kn" ? "ವಾಪಸಾತಿ ಉಳಿಸಲಾಗಿದೆ" : "Return saved")
+        : t("saved");
+      const offMsg = mode === "return"
+        ? (lang === "kn" ? "ವಾಪಸಾತಿ ಆಫ್‌ಲೈನ್ ಆಗಿ ಉಳಿಸಲಾಗಿದೆ · ಸಂಪರ್ಕ ಮತ್ತೆ ಬಂದಾಗ ಸಿಂಕ್ ಆಗುತ್ತದೆ"
+                          : "Return saved offline · will sync when online")
+        : (lang === "kn" ? "ಮುಂಗಡ ಆಫ್‌ಲೈನ್ ಆಗಿ ಉಳಿಸಲಾಗಿದೆ · ಸಂಪರ್ಕ ಮತ್ತೆ ಬಂದಾಗ ಸಿಂಕ್ ಆಗುತ್ತದೆ"
+                          : "Advance saved offline · will sync when online");
+      toast.success(queued ? offMsg : okMsg);
       loadAll();
     } catch { toast.error("Failed"); }
   };

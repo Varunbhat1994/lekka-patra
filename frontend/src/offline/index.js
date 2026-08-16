@@ -30,5 +30,7 @@ export {
   listWorkers, createWorker, updateWorker,
   listContractors, createContractor, updateContractor,
   listAttendanceByDate, saveAttendance,
+  listAdvances, createAdvance, deleteAdvance,
+  listReturns, createReturn, deleteReturn,
 } from "./dataLayer";
 export { drainQueue, installSyncTriggers } from "./syncEngine";

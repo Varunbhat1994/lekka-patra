@@ -3,12 +3,14 @@
 Owns:
     GET    /advances                  — list current user's advances,
                                         optionally filtered by worker_id
-    POST   /advances                  — create advance (write-gated)
+    POST   /advances                  — create advance (write-gated,
+                                        idempotent via operation_id)
     DELETE /advances/{adv_id}         — delete advance (write-gated)
 
     GET    /returns                   — list advance returns, optionally
                                         filtered by worker_id
-    POST   /returns                   — create return (write-gated)
+    POST   /returns                   — create return (write-gated,
+                                        idempotent via operation_id)
     DELETE /returns/{rid}             — delete return (write-gated)
 
 Behavior, response shapes, ownership scoping, validation, error
@@ -16,6 +18,12 @@ responses, and MongoDB collection names (`advances`, `advance_returns`)
 are preserved bit-for-bit from the original inline implementation in
 server.py. Settlements remain in server.py because they touch both
 worker and contractor ledgers.
+
+Offline sync note: POST accepts an optional client-supplied
+`operation_id` (UUID v4). Repeat calls with the same
+(user_id, operation_id) pair return the cached response — see
+services/sync_ops.py. DELETE is idempotent by construction (repeated
+delete of an absent id returns {"ok": True}).
 """
 import uuid
 from datetime import datetime, timezone
@@ -27,6 +35,7 @@ from pydantic import BaseModel, Field
 from core.database import db
 from security.authentication import get_current_user
 from security.authorization import require_write_access
+from services.sync_ops import idempotent
 
 
 router = APIRouter()
@@ -55,6 +64,9 @@ class AdvanceIn(BaseModel):
     amount: float
     method: str
     notes: Optional[str] = ""
+    # Client-supplied idempotency key from the offline sync queue.
+    # Optional so existing online callers are unaffected.
+    operation_id: Optional[str] = None
 
 
 class ReturnIn(BaseModel):
@@ -63,6 +75,8 @@ class ReturnIn(BaseModel):
     amount: float
     method: str = "cash"
     notes: Optional[str] = ""
+    # Client-supplied idempotency key from the offline sync queue.
+    operation_id: Optional[str] = None
 
 
 # ---------------- Advances ----------------
@@ -78,18 +92,21 @@ async def list_advances(user: dict = Depends(get_current_user), worker_id: Optio
 
 @router.post("/advances")
 async def create_advance(a: AdvanceIn, user: dict = Depends(require_write_access)):
-    # Reject records referencing a worker not owned by the caller.
-    # Prevents cross-account orphan rows and keeps every advance tied
-    # to a (user_id, worker_id) pair the ledger can trust.
-    if not await db.workers.find_one(
-        {"id": a.worker_id, "user_id": user["user_id"]}, {"_id": 1}
-    ):
-        raise HTTPException(404, "Worker not found")
-    obj = Advance(user_id=user["user_id"], **a.model_dump())
-    doc = obj.model_dump()
-    doc["created_at"] = doc["created_at"].isoformat()
-    await db.advances.insert_one(doc)
-    return obj
+    async def do():
+        # Reject records referencing a worker not owned by the caller.
+        # Prevents cross-account orphan rows and keeps every advance tied
+        # to a (user_id, worker_id) pair the ledger can trust.
+        if not await db.workers.find_one(
+            {"id": a.worker_id, "user_id": user["user_id"]}, {"_id": 1}
+        ):
+            raise HTTPException(404, "Worker not found")
+        payload = a.model_dump(exclude={"operation_id"})
+        obj = Advance(user_id=user["user_id"], **payload)
+        doc = obj.model_dump()
+        doc["created_at"] = doc["created_at"].isoformat()
+        await db.advances.insert_one(doc)
+        return obj
+    return await idempotent(user["user_id"], a.operation_id, "advances", do)
 
 
 @router.delete("/advances/{adv_id}")
@@ -111,23 +128,25 @@ async def list_returns(user: dict = Depends(get_current_user), worker_id: Option
 
 @router.post("/returns")
 async def create_return(r: ReturnIn, user: dict = Depends(require_write_access)):
-    if not await db.workers.find_one(
-        {"id": r.worker_id, "user_id": user["user_id"]}, {"_id": 1}
-    ):
-        raise HTTPException(404, "Worker not found")
-    doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["user_id"],
-        "worker_id": r.worker_id,
-        "date": r.date,
-        "amount": r.amount,
-        "method": r.method,
-        "notes": r.notes or "",
-        "created_at": _now_utc().isoformat(),
-    }
-    await db.advance_returns.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
+    async def do():
+        if not await db.workers.find_one(
+            {"id": r.worker_id, "user_id": user["user_id"]}, {"_id": 1}
+        ):
+            raise HTTPException(404, "Worker not found")
+        doc = {
+            "id": str(uuid.uuid4()),
+            "user_id": user["user_id"],
+            "worker_id": r.worker_id,
+            "date": r.date,
+            "amount": r.amount,
+            "method": r.method,
+            "notes": r.notes or "",
+            "created_at": _now_utc().isoformat(),
+        }
+        await db.advance_returns.insert_one(doc)
+        doc.pop("_id", None)
+        return doc
+    return await idempotent(user["user_id"], r.operation_id, "advance_returns", do)
 
 
 @router.delete("/returns/{rid}")
