@@ -31,6 +31,7 @@ from core.database import db
 from security.authentication import get_current_user
 from security.authorization import require_write_access
 from services.ledger import compute_worker_ledger
+from services.sync_ops import idempotent
 
 
 router = APIRouter()
@@ -48,10 +49,78 @@ class SettlementIn(BaseModel):
     mode: Optional[str] = None  # "adjust_advance" | "actual_paid" (worker only)
     actual_paid: Optional[float] = None  # cash paid today (mode=actual_paid)
     note: Optional[str] = ""
+    # ------- Offline sync fields (Section §2 — safe draft revalidation) -------
+    # Client-supplied idempotency key from the offline sync queue. When
+    # the same (user_id, operation_id) pair replays, the cached response
+    # is returned instead of double-writing settlement + auto rows.
+    operation_id: Optional[str] = None
+    # Snapshot of the client's cached ledger at the moment the user
+    # tapped Mark Settled. Presence of EITHER field triggers server
+    # revalidation: server recomputes earned + net_advance live and
+    # refuses to write if the numbers differ (returns HTTP 409 with a
+    # `settlement_revalidation_failed` detail).
+    client_earned_snapshot: Optional[float] = None
+    client_advance_snapshot: Optional[float] = None
+    # ISO timestamp of when the client's ledger was cached — surfaces
+    # in the 409 detail so the Sync Review UI can show "cached at X".
+    cached_at: Optional[str] = None
+
+
+# Tolerance for float comparison — settlement amounts are rupees with
+# 2-decimal precision, so anything ≤ 0.01 is a rounding tie, not a
+# genuine ledger divergence.
+_LEDGER_TOLERANCE = 0.01
+
+
+def _revalidate_client_snapshot(
+    s: "SettlementIn", server_earned: float, server_net_advance: float
+) -> None:
+    """Raise HTTP 409 if a client-supplied draft snapshot disagrees with
+    the live server ledger. No-op when the caller did not send any
+    snapshot fields (pure online path). See routes/settlements docstring
+    for the offline-draft-safety contract.
+    """
+    if s.client_earned_snapshot is None and s.client_advance_snapshot is None:
+        return
+    earned_match = (
+        s.client_earned_snapshot is None
+        or abs(server_earned - s.client_earned_snapshot) <= _LEDGER_TOLERANCE
+    )
+    adv_match = (
+        s.client_advance_snapshot is None
+        or abs(server_net_advance - s.client_advance_snapshot) <= _LEDGER_TOLERANCE
+    )
+    if earned_match and adv_match:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "settlement_revalidation_failed",
+            "message": (
+                "Server ledger differs from the offline draft. This "
+                "settlement is preserved as a draft for manual review."
+            ),
+            "client": {
+                "earned": s.client_earned_snapshot,
+                "net_advance": s.client_advance_snapshot,
+                "cached_at": s.cached_at,
+            },
+            "server": {
+                "earned": round(server_earned, 2),
+                "net_advance": round(server_net_advance, 2),
+            },
+        },
+    )
 
 
 @router.post("/settlements")
 async def settle(s: SettlementIn, user: dict = Depends(require_write_access)):
+    async def do():
+        return await _settle_body(s, user)
+    return await idempotent(user["user_id"], s.operation_id, "settlements", do)
+
+
+async def _settle_body(s: SettlementIn, user: dict):
     """Close out the current work period for a worker OR a contractor.
 
     Worker modes (payload.mode):
@@ -77,6 +146,14 @@ async def settle(s: SettlementIn, user: dict = Depends(require_write_access)):
         led = await compute_worker_ledger(user["user_id"], worker)
         earned = max(0.0, led["pending"])  # pending == period earned since last cutoff
         existing_net_advance = round(led["net_advance"], 2)
+
+        # ---- OFFLINE DRAFT REVALIDATION (Section §2) -------------------
+        # If the client supplied a snapshot of what its cached ledger
+        # believed at the moment the user tapped Mark Settled, we must
+        # refuse to finalize unless the live server compute agrees.
+        # This prevents a stale-cache draft from silently applying an
+        # incorrect earned/advance amount to the accounting ledger.
+        _revalidate_client_snapshot(s, earned, existing_net_advance)
 
         mode = (s.mode or "").strip().lower() or None
         auto_return_id: Optional[str] = None

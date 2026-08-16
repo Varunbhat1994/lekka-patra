@@ -183,6 +183,13 @@ async function executeOp(scope, op, idMap) {
       return { ok: true };
     }
   }
+  if (entity_type === "settlements") {
+    // POST /settlements will revalidate against the live ledger when
+    // the payload carries client_earned_snapshot / client_advance_snapshot.
+    // A mismatch surfaces as HTTP 409 → drainQueue marks the op as
+    // requires_review and preserves the draft row for manual review.
+    if (operation_type === "create") return (await axios.post(`${API}/settlements`, rewritten)).data;
+  }
   throw new Error(`unknown op ${entity_type}/${operation_type}`);
 }
 
@@ -196,6 +203,7 @@ async function mirrorServerId(scope, entityType, localId, serverId, serverRow) {
                   : entityType === "attendance" ? STORES.ATTENDANCE
                   : entityType === "advances" ? STORES.ADVANCES
                   : entityType === "advance_returns" ? STORES.ADVANCE_RETURNS
+                  : entityType === "settlements" ? STORES.SETTLEMENTS
                   : null;
   if (!storeName) return;
   const db = await getDB();

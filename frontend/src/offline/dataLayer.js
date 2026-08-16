@@ -470,3 +470,69 @@ export async function deleteReturn(scope, id) {
   }
 }
 
+
+// ---------- SETTLEMENTS (offline DRAFT + server revalidation) ----------
+//
+// Offline settlement policy (Section §2 of FINAL SCOPE):
+//   * Online → POST /settlements immediately. Optionally include the
+//     client's ledger snapshot; the server accepts and revalidates.
+//   * Offline → write a "draft_pending_sync" row into STORES.SETTLEMENTS
+//     and enqueue a create op WITH the client snapshot on the payload.
+//     When the sync engine drains, the backend revalidates against the
+//     live ledger; on mismatch it returns 409, which the engine
+//     translates to sync_status=requires_review — no silent write.
+//
+// The snapshot travels VERBATIM (no recomputation at sync time), just
+// like daily_rate_snapshot on attendance. This is the accounting
+// invariant: what the user believed at the moment of entry is what the
+// server verifies against.
+
+export async function saveSettlement(scope, form, snapshot = null) {
+  requireScope(scope);
+  const payload = { ...form };
+  if (snapshot && (snapshot.earned != null || snapshot.net_advance != null)) {
+    if (snapshot.earned != null) payload.client_earned_snapshot = snapshot.earned;
+    if (snapshot.net_advance != null) payload.client_advance_snapshot = snapshot.net_advance;
+    if (snapshot.cached_at) payload.cached_at = snapshot.cached_at;
+  }
+  try {
+    const { data } = await axios.post(`${API}/settlements`, payload);
+    // Server accepted (either no snapshot or snapshot matched live ledger).
+    await put(STORES.SETTLEMENTS, scope, {
+      local_id: data.id, server_id: data.id, ...data, sync_status: "synced",
+    });
+    return data;
+  } catch (err) {
+    // Online 409 = server revalidation failed. Do NOT queue this —
+    // surface immediately so the UI can force a re-open with fresh data.
+    const status = err?.response?.status;
+    if (status === 409) {
+      const detail = err.response?.data?.detail || {};
+      const e = new Error("settlement_revalidation_failed");
+      e.code = detail?.code || "settlement_revalidation_failed";
+      e.server = detail?.server;
+      e.client = detail?.client;
+      throw e;
+    }
+    // Network-style failure → offline draft path.
+    const local_id = uuid();
+    const now = nowIso();
+    const draft = {
+      local_id,
+      server_id: null,
+      ...form,
+      // Carry the snapshot on the local draft so a Sync Review UI can
+      // display "cached at X · earned believed Y" without hitting the
+      // server.
+      client_earned_snapshot: snapshot?.earned ?? null,
+      client_advance_snapshot: snapshot?.net_advance ?? null,
+      cached_at: snapshot?.cached_at || now,
+      created_at: now,
+      sync_status: "draft_pending_sync",
+    };
+    await put(STORES.SETTLEMENTS, scope, draft);
+    await enqueue(scope, "settlements", "create", payload, { local_ref: local_id });
+    return { id: local_id, ...form, queued: true, draft: true };
+  }
+}
+

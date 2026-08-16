@@ -32,5 +32,6 @@ export {
   listAttendanceByDate, saveAttendance,
   listAdvances, createAdvance, deleteAdvance,
   listReturns, createReturn, deleteReturn,
+  saveSettlement,
 } from "./dataLayer";
 export { drainQueue, installSyncTriggers } from "./syncEngine";

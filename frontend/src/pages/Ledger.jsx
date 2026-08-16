@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "sonner";
 import { CaretRight, User, Wallet, ClockCounterClockwise, FilePdf, Plus, ArrowUUpLeft, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
-import { createAdvance, createReturn } from "@/offline";
+import { createAdvance, createReturn, saveSettlement } from "@/offline";
 
 export default function Ledger() {
   const { t, user, API, lang, accountScope, isOnline } = useApp();
@@ -100,13 +100,23 @@ export default function Ledger() {
 
   const openSettle = async (w) => {
     // Always use CURRENT-cycle ledger for settle (ignore history filter).
-    let l;
+    let l, cachedAt = new Date().toISOString();
     try {
       const r = await axios.get(`${API}/ledger/${w.id}`);
       l = r.data;
-    } catch { l = ledgers[w.id]; }
+    } catch {
+      // Offline / network failure: fall back to whatever loadAll() last
+      // pulled. This value is what the user is looking at on-screen, so
+      // pinning cached_at to its origin (or "now" if we don't know) is
+      // honest enough for the draft-revalidation contract.
+      l = ledgers[w.id];
+    }
     const earned = Math.max(0, Number(l?.pending ?? 0));
-    setSettleForm({ worker: w, led: l, mode: "actual_paid", actual: String(earned) });
+    setSettleForm({
+      worker: w, led: l, mode: "actual_paid",
+      actual: String(earned),
+      cached_at: cachedAt,
+    });
     setSettleOpen(true);
   };
 
@@ -127,19 +137,43 @@ export default function Ledger() {
       }
       body.actual_paid = parsed;
     }
+    // Snapshot the earned + net_advance the client believed at OPEN
+    // time so the server can revalidate before finalizing. On mismatch
+    // the server writes zero rows and returns 409 → sync engine parks
+    // the draft as requires_review.
+    const snapshot = {
+      earned: Math.max(0, Number(settleForm.led?.pending ?? 0)),
+      net_advance: Math.max(0, Number(settleForm.led?.net_advance ?? 0)),
+      cached_at: settleForm.cached_at,
+    };
     try {
-      const r = await axios.post(`${API}/settlements`, body);
-      const d = r.data || {};
+      const d = await saveSettlement(accountScope, body, snapshot);
       setSettleOpen(false);
-      if (d.worker_owes_user > 0) {
+      if (d?.queued) {
+        toast.success(lang === "kn"
+          ? "ಇತ್ಯರ್ಥ ಡ್ರಾಫ್ಟ್ ಆಗಿ ಉಳಿಸಲಾಗಿದೆ · ಆನ್‌ಲೈನ್ ಬಂದಾಗ ಸರ್ವರ್ ಪರಿಶೀಲಿಸಿ ಅಂತಿಮಗೊಳಿಸುತ್ತದೆ"
+          : "Settlement saved as draft · Server will revalidate when online");
+      } else if (d?.worker_owes_user > 0) {
         toast.success(lang === "kn" ? `ಇತ್ಯರ್ಥ ಆಗಿದೆ · ಕಾರ್ಮಿಕ ನಿಮಗೆ ₹${d.worker_owes_user} ಸಾಲ` : `Settled · Worker owes you ₹${d.worker_owes_user}`);
-      } else if (d.new_advance_created > 0) {
+      } else if (d?.new_advance_created > 0) {
         toast.success(lang === "kn" ? `ಇತ್ಯರ್ಥ · ಹೊಸ ಮುಂಗಡ ₹${d.new_advance_created}` : `Settled · New advance ₹${d.new_advance_created} created`);
       } else {
         toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥಗೊಂಡಿದೆ" : "Settled");
       }
       loadAll();
     } catch (e) {
+      if (e?.code === "settlement_revalidation_failed") {
+        // Rare online case: another tab (or another admin) updated the
+        // ledger between opening the dialog and confirming. Show the
+        // divergence and force the user to reopen with fresh numbers.
+        const srv = e.server || {};
+        toast.error(lang === "kn"
+          ? `ಸರ್ವರ್ ಬಾಕಿ ಬದಲಾಗಿದೆ · ಗಳಿಕೆ ₹${srv.earned ?? "?"}, ಮುಂಗಡ ₹${srv.net_advance ?? "?"}. ದಯವಿಟ್ಟು ಮತ್ತೆ ತೆರೆಯಿರಿ.`
+          : `Server ledger changed · earned ₹${srv.earned ?? "?"}, advance ₹${srv.net_advance ?? "?"}. Please reopen to refresh.`);
+        setSettleOpen(false);
+        loadAll();
+        return;
+      }
       toast.error(e?.response?.data?.detail || "Failed");
     }
   };
@@ -395,6 +429,29 @@ export default function Ledger() {
           </DialogHeader>
 
           <div className="space-y-3">
+            {!isOnline && (
+              <div
+                data-testid="settle-offline-warning"
+                className="rounded-lg border border-[hsl(28_70%_55%)]/40 bg-[hsl(30_100%_96%)] p-3 text-[11px] leading-snug"
+              >
+                <div className="font-semibold text-[hsl(28_70%_35%)] mb-0.5">
+                  {lang === "kn" ? "ಆಫ್‌ಲೈನ್ · ಡ್ರಾಫ್ಟ್ ಆಗಿ ಉಳಿಸಲಾಗುತ್ತದೆ" : "Offline · will be saved as a draft"}
+                </div>
+                <div className="text-[hsl(28_60%_30%)]">
+                  {lang === "kn"
+                    ? "ಈ ಮೊತ್ತವು "
+                    : "This amount is based on data cached at "}
+                  <span className="font-mono">
+                    {settleForm.cached_at
+                      ? new Date(settleForm.cached_at).toLocaleString(lang === "kn" ? "kn-IN" : "en-IN")
+                      : "—"}
+                  </span>
+                  {lang === "kn"
+                    ? " ಸಮಯದ ಸಂಗ್ರಹಿಸಿದ ಡೇಟಾ ಆಧಾರಿತ. ನೀವು ಆನ್‌ಲೈನ್‌ಗೆ ಬಂದಾಗ ಸರ್ವರ್‌ನಲ್ಲಿ ತಾಜಾ ಬಾಕಿ ವಿರುದ್ಧ ಇದನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತದೆ."
+                    : ". It will be checked against the latest server records when you're back online."}
+                </div>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg border border-border bg-secondary/40 p-3">
                 <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
