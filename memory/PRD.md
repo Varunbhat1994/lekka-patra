@@ -63,7 +63,31 @@ Production-ready, mobile-responsive web app for agriculturists to track field la
 
 
 
+## Changelog — Offline-First (Feb 2026)
+
+### Locked checkpoints (do not modify — accounting invariants preserved)
+1. **post-offline-storage-layer** (`229939f`) — IndexedDB via `idb`, 17 stores, `account_scope` (SHA-256 of user_id) tenant partition.
+2. **post-offline-auth-session** (`d06fa6c`) — Hydration state machine, offline session gate, first-time-offline setup guard.
+3. **post-offline-attendance-workers-contractors** (`f8a8c0a`) — `offline/dataLayer.js` offline CRUD. Attendance offline saves capture `daily_rate_snapshot` at entry time (locked invariant).
+4. **post-offline-pwa-shell** (`81db335`) — Custom `public/service-worker.js` app-shell caching, offline status pill.
+5. **post-offline-sync-engine** (`aaea278`) — `offline/syncEngine.js` drainer + `backend/services/sync_ops.py` idempotency ledger with unique compound index + 30d TTL.
+
+### New checkpoints (Feb 2026 session)
+6. **post-offline-advances-returns** (`0be8ea9`) — POST /api/advances + POST /api/returns accept `operation_id`; both wrapped in `services.sync_ops.idempotent`. Frontend `createAdvance` / `createReturn` / `deleteAdvance` / `deleteReturn` route through offline-first `dataLayer`; `syncEngine.executeOp` handles both create + delete for `advances` and `advance_returns` entities. `Ledger.jsx` `saveAdvance()` now enqueues offline.
+7. **post-offline-settlement-draft** (`7574d2c`) — Settlement offline drafts + server revalidation:
+    - Backend: `SettlementIn` gains `operation_id` + `client_earned_snapshot` + `client_advance_snapshot` + `cached_at`. New `_revalidate_client_snapshot` raises HTTP 409 `settlement_revalidation_failed` (with client/server sub-dicts) when cached ledger diverges from live compute beyond ±0.01 rupees. Endpoint wrapped in `idempotent`.
+    - Frontend: `saveSettlement(scope, form, snapshot)` writes `STORES.SETTLEMENTS` with `sync_status = draft_pending_sync` and enqueues with the snapshot embedded. Draft warning banner in Settle dialog when offline. `syncEngine.executeOp` handles `settlements/create`; 409 parks the op as `requires_review` — no silent last-write-wins.
+    - Verified end-to-end by 14/14 backend tests in `/app/backend/tests/test_offline_sync_idempotency.py`.
+8. **post-offline-read-caches** (`d3666af`) — Offline read-through caches for: worker ledger, contractor ledger, dashboard, calendar month, calendar day. Every helper falls back to the last cached snapshot when the network is down (`_stale: true` + `_cached_at`). `Ledger`, `WorkerHistory`, `ContractorHistory`, `Dashboard`, `AttendanceCalendar` all wired through these helpers. No blank screens while offline.
+
+### Offline safety contract (must not regress)
+- `daily_rate_snapshot` on attendance is captured at ENTRY time and NEVER recomputed at sync time (both online and offline). Backend `_upsert_attendance_body` excludes it from `$set` on update.
+- Offline settlements are allowed as drafts BUT the server must recompute the live ledger and refuse to write any rows on divergence.
+- Every mutation carries a client `operation_id` (UUID v4). Replays return the cached response snapshot — no double-writes, no double auto-advance/auto-return.
+- All IndexedDB rows carry `account_scope` (SHA-256 of user_id). Cross-tenant reads are mechanically impossible in normal application code.
+
 ## Backlog (P1/P2)
+- **P1** Conflict Resolution UI (`/sync/review`) — a dedicated route listing ops with `sync_status = requires_review` (including settlement drafts that failed revalidation), showing client vs server snapshot, and letting the owner discard the draft OR force-apply. Backend must also flag attendance/master-data 409s (field-diff and stale `baseline_updated_at`) into the same review queue.
 - **P1** Real SMS OTP (Firebase Phone Auth once user upgrades to Blaze, or MSG91/Twilio fallback)
 - **P1** Razorpay Webhook Configuration (RAZORPAY_WEBHOOK_SECRET) for out-of-band capture
 - **P2** WhatsApp renewal nudges 7 days before subscription expiry
