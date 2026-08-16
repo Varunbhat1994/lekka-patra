@@ -267,24 +267,39 @@ export default function AttendanceCalendar() {
         {DAY_HEADERS.map((d, i) => <div key={i}>{d}</div>)}
       </div>
 
-      {/* Date grid — filled emerald circle for marked, per Reference A */}
+      {/* Date grid — filled circle per attendance status.
+          Present = existing green (--primary).
+          Half Day = saturated blue (same hue family as HALF DAY legend).
+          Overtime = saturated purple (same hue family as OVERTIME legend).
+          Fill/shape/typography/shadow are IDENTICAL across the three
+          statuses so they read as equally weighted, only the hue
+          distinguishes them. Selected-date/today ring is unchanged and
+          only appears when the date is NOT marked — the ring never
+          represents an attendance status. */}
       <div className="grid grid-cols-7 gap-1">
         {cells.map((day, idx) => {
           if (day == null) return <div key={idx} className="h-10"/>;
           const dateStr = `${year}-${pad2(month)}-${pad2(day)}`;
           const marked = workerMarks.has(dateStr);
           const status = workerMarks.get(dateStr);
+          const markedBg =
+            status === "half_day"
+              ? "bg-[hsl(215_85%_45%)] text-white font-semibold shadow-sm"
+              : status === "overtime"
+                ? "bg-[hsl(272_55%_48%)] text-white font-semibold shadow-sm"
+                : "bg-[hsl(var(--primary))] text-white font-semibold shadow-sm";
           return (
             <button
               key={idx}
               data-testid={`cal-day-${dateStr}`}
               data-marked={marked ? "1" : "0"}
+              data-status={marked ? status : ""}
               onClick={() => openDate(day)}
               className={
                 "h-10 rounded-full text-sm flex items-center justify-center relative " +
                 "active:scale-[0.96] transition-transform " +
                 (marked
-                  ? "bg-[hsl(var(--primary))] text-white font-semibold shadow-sm"
+                  ? markedBg
                   : "bg-transparent text-foreground hover:bg-muted") +
                 (isToday(day) && !marked ? " ring-1 ring-[hsl(var(--primary))]" : "")
               }
