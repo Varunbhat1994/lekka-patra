@@ -490,9 +490,13 @@ export async function deleteReturn(scope, id) {
 export async function saveSettlement(scope, form, snapshot = null) {
   requireScope(scope);
   const payload = { ...form };
-  if (snapshot && (snapshot.earned != null || snapshot.net_advance != null)) {
+  if (snapshot && (
+        snapshot.earned != null
+        || snapshot.net_advance != null
+        || snapshot.net_paid != null)) {
     if (snapshot.earned != null) payload.client_earned_snapshot = snapshot.earned;
     if (snapshot.net_advance != null) payload.client_advance_snapshot = snapshot.net_advance;
+    if (snapshot.net_paid != null) payload.client_net_paid_snapshot = snapshot.net_paid;
     if (snapshot.cached_at) payload.cached_at = snapshot.cached_at;
   }
   try {
@@ -510,6 +514,7 @@ export async function saveSettlement(scope, form, snapshot = null) {
       const detail = err.response?.data?.detail || {};
       const e = new Error("settlement_revalidation_failed");
       e.code = detail?.code || "settlement_revalidation_failed";
+      e.kind = detail?.kind || null;
       e.server = detail?.server;
       e.client = detail?.client;
       throw e;
@@ -522,10 +527,12 @@ export async function saveSettlement(scope, form, snapshot = null) {
       server_id: null,
       ...form,
       // Carry the snapshot on the local draft so a Sync Review UI can
-      // display "cached at X · earned believed Y" without hitting the
-      // server.
+      // display "cached at X · <believed values>" without hitting the
+      // server. Contractor drafts carry client_net_paid_snapshot;
+      // worker drafts carry earned+net_advance.
       client_earned_snapshot: snapshot?.earned ?? null,
       client_advance_snapshot: snapshot?.net_advance ?? null,
+      client_net_paid_snapshot: snapshot?.net_paid ?? null,
       cached_at: snapshot?.cached_at || now,
       created_at: now,
       sync_status: "draft_pending_sync",
@@ -977,4 +984,48 @@ export async function getContractorLedgerWithLocal(scope, contractorId, range = 
 }
 
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
+
+
+/**
+ * Return the pending contractor settlement draft for this contractor, if
+ * any. Used by ContractorDetail to render a "Pending confirmation" pill
+ * so a draft settlement never masquerades as finalized. Also returns the
+ * matching sync_queue op status so the UI can distinguish
+ *   draft_pending_sync   → not yet sent to server
+ *   syncing/pending      → being drained
+ *   requires_review      → server rejected (mismatch or auth), preserved
+ *
+ * Returns null when there is no pending draft for this contractor.
+ */
+export async function getPendingContractorSettlement(scope, contractorId) {
+  requireScope(scope);
+  const [settlements, queue] = await Promise.all([
+    listByScope(STORES.SETTLEMENTS, scope),
+    listByScope(STORES.SYNC_QUEUE, scope),
+  ]);
+  const draft = settlements.find(
+    (r) => r.contractor_id === contractorId
+        && r.sync_status === "draft_pending_sync",
+  );
+  if (!draft) return null;
+  const op = queue.find(
+    (o) => o.entity_type === "settlements"
+        && o.local_ref === draft.local_id,
+  );
+  return { draft, op: op || null };
+}
+
+/**
+ * Discard a pending contractor settlement draft (owner explicit action).
+ * Drops the draft row from IDB and removes the queue op — the safe
+ * "cancel offline draft" branch of the required conflict resolution UX.
+ */
+export async function discardPendingContractorSettlement(scope, contractorId) {
+  requireScope(scope);
+  const pending = await getPendingContractorSettlement(scope, contractorId);
+  if (!pending) return { ok: true, removed: 0 };
+  await deleteByKey(STORES.SETTLEMENTS, pending.draft.local_id);
+  if (pending.op) await deleteByKey(STORES.SYNC_QUEUE, pending.op.operation_id);
+  return { ok: true, removed: 1 };
+}
 

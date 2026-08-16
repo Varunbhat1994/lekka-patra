@@ -61,6 +61,11 @@ class SettlementIn(BaseModel):
     # `settlement_revalidation_failed` detail).
     client_earned_snapshot: Optional[float] = None
     client_advance_snapshot: Optional[float] = None
+    # Contractor-branch snapshot (mirrors the worker fields above).
+    # Presence triggers server revalidation against the live
+    # compute_contractor_ledger.net_paid — mismatch → HTTP 409, no
+    # settlement/auto-return rows written.
+    client_net_paid_snapshot: Optional[float] = None
     # ISO timestamp of when the client's ledger was cached — surfaces
     # in the 409 detail so the Sync Review UI can show "cached at X".
     cached_at: Optional[str] = None
@@ -108,6 +113,41 @@ def _revalidate_client_snapshot(
             "server": {
                 "earned": round(server_earned, 2),
                 "net_advance": round(server_net_advance, 2),
+            },
+        },
+    )
+
+
+def _revalidate_contractor_client_snapshot(
+    s: "SettlementIn", server_net_paid: float
+) -> None:
+    """Contractor equivalent of _revalidate_client_snapshot.
+
+    When the client submits a contractor settlement draft that carries
+    client_net_paid_snapshot, the server MUST recompute the live
+    contractor ledger and refuse to write any rows if the numbers
+    diverge. Absent snapshot → no-op (pure online path unchanged).
+    """
+    if s.client_net_paid_snapshot is None:
+        return
+    if abs(server_net_paid - s.client_net_paid_snapshot) <= _LEDGER_TOLERANCE:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "settlement_revalidation_failed",
+            "kind": "contractor",
+            "message": (
+                "Server contractor ledger differs from the offline "
+                "draft. This settlement is preserved as a draft for "
+                "manual review."
+            ),
+            "client": {
+                "net_paid": s.client_net_paid_snapshot,
+                "cached_at": s.cached_at,
+            },
+            "server": {
+                "net_paid": round(server_net_paid, 2),
             },
         },
     )
@@ -264,6 +304,13 @@ async def _settle_body(s: SettlementIn, user: dict):
     ).to_list(2000)
     net_paid = round(sum(p["amount"] for p in payments) - sum(r["amount"] for r in returns), 2)
     net_paid = max(0.0, net_paid)
+
+    # ---- OFFLINE DRAFT REVALIDATION (contractor branch) --------------
+    # If the client supplied a snapshot of its cached net_paid at the
+    # moment the user tapped Mark Settled, refuse to finalize unless
+    # the live server compute agrees. Mirrors the worker branch above.
+    _revalidate_contractor_client_snapshot(s, net_paid)
+
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": user["user_id"],

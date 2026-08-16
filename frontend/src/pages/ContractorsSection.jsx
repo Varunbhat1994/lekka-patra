@@ -21,6 +21,8 @@ import {
   createContractorPayment, deleteContractorPayment,
   createContractorReturn, deleteContractorReturn,
   getContractorLedgerWithLocal,
+  saveSettlement,
+  getPendingContractorSettlement, discardPendingContractorSettlement,
 } from "@/offline";
 
 const emptyContractor = { name: "", mobile: "", notes: "" };
@@ -182,6 +184,15 @@ function ContractorDetail({ id, onClose }) {
   const [visitForm, setVisitForm] = useState({ date: today(), workers_count: "", field_crop: "", notes: "" });
   const [payMode, setPayMode] = useState("payment"); // "payment" | "return"
   const [payForm, setPayForm] = useState({ date: today(), amount: "", method: "cash", notes: "" });
+  // Settlement draft dialog state (offline-safe Mark Settled). `pending`
+  // is the currently persisted draft (if any) so History/Ledger can
+  // render "Pending confirmation" while the sync engine drains — a
+  // draft NEVER masquerades as a finalized settlement. `cachedAt` is
+  // the ISO time the ledger snapshot was captured; the offline warning
+  // banner echoes it verbatim.
+  const [settleOpen, setSettleOpen] = useState(false);
+  const [pending, setPending] = useState(null);
+  const [conflict, setConflict] = useState(null); // { client, server } after 409
 
   const load = async () => {
     if (!accountScope) return;
@@ -190,6 +201,7 @@ function ContractorDetail({ id, onClose }) {
     // payment / return is immediately visible without a round-trip.
     const d = await getContractorLedgerWithLocal(accountScope, id);
     if (d) setData(d);
+    setPending(await getPendingContractorSettlement(accountScope, id));
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id, accountScope, isOnline]);
 
@@ -255,24 +267,59 @@ function ContractorDetail({ id, onClose }) {
     link.click();
   };
 
-  const settleContractor = async () => {
-    if (!window.confirm(`Mark ${data?.contractor?.name || ""} settled?`)) return;
+  const openSettleContractor = () => {
+    // Reset any prior conflict state and open the draft dialog.
+    // The dialog itself surfaces the offline warning (using cached_at
+    // = now, since we're consuming the freshly-loaded ledger).
+    setConflict(null);
+    setSettleOpen(true);
+  };
+
+  const confirmSettleContractor = async () => {
+    if (!accountScope) return;
+    const net = Math.max(0, Number(data?.net_paid ?? 0));
+    const body = {
+      contractor_id: id,
+      up_to_date: today(),
+    };
+    // Snapshot the client's cached net_paid so the server can revalidate
+    // before writing any settlement row. On mismatch the backend
+    // returns 409 with kind=contractor + client/server sub-dicts;
+    // syncEngine parks the queue op as requires_review and the draft
+    // is preserved locally — never silently applied.
+    const snapshot = {
+      net_paid: net,
+      cached_at: new Date().toISOString(),
+    };
     try {
-      await axios.post(`${API}/settlements`, {
-        contractor_id: id,
-        up_to_date: today(),
-      });
-      // Optimistically zero net_paid + final_balance; bump total_settled
-      setData(prev => prev ? {
-        ...prev,
-        net_paid: 0,
-        final_balance: 0,
-        total_returned: (prev.total_returned || 0) + (prev.net_paid || 0),
-        total_settled: (prev.total_settled || 0) + (prev.net_paid || 0),
-      } : prev);
-      toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥ ದಾಖಲಿಸಲಾಗಿದೆ" : "Settled");
+      const d = await saveSettlement(accountScope, body, snapshot);
+      setSettleOpen(false);
+      if (d?.queued) {
+        toast.success(lang === "kn"
+          ? "ಇತ್ಯರ್ಥ ಡ್ರಾಫ್ಟ್ ಆಗಿ ಉಳಿಸಲಾಗಿದೆ · ಇಂಟರ್ನೆಟ್ ಬಂದಾಗ ಸರ್ವರ್ ಪರಿಶೀಲಿಸಿ ಅಂತಿಮಗೊಳಿಸುತ್ತದೆ"
+          : "Draft saved · server will revalidate when online");
+      } else {
+        toast.success(lang === "kn" ? "ಇತ್ಯರ್ಥಗೊಂಡಿದೆ" : "Settled");
+      }
       load();
-    } catch { toast.error("Failed"); }
+    } catch (e) {
+      if (e?.code === "settlement_revalidation_failed") {
+        // Rare online case: another device changed the ledger between
+        // dialog open and confirm. Show BOTH amounts inline in the
+        // dialog so the owner explicitly picks: settle new amount OR
+        // cancel draft.
+        setConflict({ client: e.client, server: e.server });
+        return;
+      }
+      toast.error(e?.response?.data?.detail || "Failed");
+    }
+  };
+
+  const discardDraft = async () => {
+    if (!accountScope) return;
+    await discardPendingContractorSettlement(accountScope, id);
+    toast.success(lang === "kn" ? "ಡ್ರಾಫ್ಟ್ ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ" : "Draft discarded");
+    load();
   };
 
   return (
@@ -336,6 +383,82 @@ function ContractorDetail({ id, onClose }) {
             );
           })()}
 
+          {pending && (
+            <div
+              data-testid="contractor-settle-pending"
+              className={`rounded-lg border p-3 text-[11px] leading-snug ${
+                pending.op?.sync_status === "requires_review"
+                  ? "border-red-300 bg-red-50"
+                  : "border-[hsl(28_70%_55%)]/40 bg-[hsl(30_100%_96%)]"
+              }`}
+            >
+              <div className={`font-semibold mb-0.5 ${
+                pending.op?.sync_status === "requires_review"
+                  ? "text-red-700" : "text-[hsl(28_70%_35%)]"
+              }`}>
+                {pending.op?.sync_status === "requires_review"
+                  ? (lang === "kn" ? "ಸರ್ವರ್ ವ್ಯತ್ಯಾಸ · ಪರಿಶೀಲನೆ ಅಗತ್ಯ" : "Server mismatch · needs review")
+                  : (lang === "kn" ? "ಇತ್ಯರ್ಥ · ದೃಢೀಕರಣ ಬಾಕಿ" : "Pending confirmation")}
+              </div>
+              <div className={pending.op?.sync_status === "requires_review" ? "text-red-800" : "text-[hsl(28_60%_30%)]"}>
+                {(() => {
+                  const clientAmt = pending.draft.client_net_paid_snapshot;
+                  const serverAmt = pending.op?.last_error?.detail?.server?.net_paid
+                    ?? pending.op?.last_error?.server?.net_paid;
+                  if (pending.op?.sync_status === "requires_review") {
+                    return (
+                      <>
+                        {lang === "kn" ? "ಆಫ್‌ಲೈನ್ ಮೊತ್ತ" : "Offline amount"}: <b>₹{clientAmt}</b>
+                        {" · "}
+                        {lang === "kn" ? "ಪ್ರಸ್ತುತ ಸರ್ವರ್" : "Current server"}: <b>₹{serverAmt ?? "?"}</b>
+                        {" · "}
+                        {lang === "kn" ? "ಯಾವುದೇ ಇತ್ಯರ್ಥ ದಾಖಲಿಸಿಲ್ಲ." : "No settlement recorded."}
+                      </>
+                    );
+                  }
+                  return (
+                    <>
+                      {lang === "kn" ? "ಡ್ರಾಫ್ಟ್ ಮೊತ್ತ" : "Draft amount"}: <b>₹{clientAmt}</b>
+                      {" · "}
+                      {lang === "kn" ? "ಸಮಯ" : "cached at"}{" "}
+                      <span className="font-mono">
+                        {pending.draft.cached_at
+                          ? new Date(pending.draft.cached_at).toLocaleString(lang === "kn" ? "kn-IN" : "en-IN")
+                          : "—"}
+                      </span>
+                    </>
+                  );
+                })()}
+              </div>
+              <div className="mt-2 flex gap-2">
+                {pending.op?.sync_status === "requires_review" && (
+                  <button
+                    data-testid="settle-current-server-btn"
+                    onClick={async () => {
+                      // Owner explicit action: discard stale draft, then
+                      // settle the CURRENT server amount online. This is
+                      // the "explicit resolve = settle new amount" branch
+                      // required by the safety contract.
+                      await discardPendingContractorSettlement(accountScope, id);
+                      await load();
+                      openSettleContractor();
+                    }}
+                    className="flex-1 min-h-[32px] rounded-md bg-[hsl(var(--primary))] text-white text-xs font-medium"
+                  >
+                    {lang === "kn" ? "ಪ್ರಸ್ತುತ ಸರ್ವರ್ ಮೊತ್ತವನ್ನು ಇತ್ಯರ್ಥಗೊಳಿಸಿ" : "Settle current server amount"}
+                  </button>
+                )}
+                <button
+                  data-testid="discard-settle-draft-btn"
+                  onClick={discardDraft}
+                  className="flex-1 min-h-[32px] rounded-md border border-red-300 text-red-700 text-xs font-medium bg-white"
+                >
+                  {lang === "kn" ? "ಡ್ರಾಫ್ಟ್ ರದ್ದುಗೊಳಿಸಿ" : "Discard draft"}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
             <Button data-testid="contractor-pdf-btn"
               onClick={() => downloadFile(`/reports/contractor/${id}/pdf`, `${data?.contractor?.name || "contractor"}.pdf`)}
@@ -349,8 +472,9 @@ function ContractorDetail({ id, onClose }) {
             </Button>
             {!locked && (
               <Button data-testid="contractor-settle-btn"
-                onClick={settleContractor}
-                className="basis-full w-full min-h-[40px] rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 whitespace-normal leading-tight">
+                onClick={openSettleContractor}
+                disabled={!!pending}
+                className="basis-full w-full min-h-[40px] rounded-lg bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90 whitespace-normal leading-tight disabled:opacity-60">
                 <Check size={16} className="mr-1 shrink-0"/>
                 <span className="truncate">
                   {lang === "kn" ? "ಇತ್ಯರ್ಥ ಎಂದು ಗುರುತಿಸಿ" : "Mark settled"}
@@ -528,6 +652,85 @@ function ContractorDetail({ id, onClose }) {
           )}
         </div>
       </div>
+
+      {/* Settle-draft dialog. Persistent offline warning is inline. */}
+      <Dialog open={settleOpen} onOpenChange={(v) => { setSettleOpen(v); if (!v) setConflict(null); }}>
+        <DialogContent className="max-w-[92%] rounded-xl" data-testid="contractor-settle-dialog">
+          <DialogHeader>
+            <DialogTitle>
+              {lang === "kn" ? "ಇತ್ಯರ್ಥಗೊಳಿಸಿ" : "Settle"} — {data?.contractor?.name}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {!isOnline && (
+              <div
+                data-testid="contractor-settle-offline-warning"
+                className="rounded-lg border border-[hsl(28_70%_55%)]/40 bg-[hsl(30_100%_96%)] p-3 text-[11px] leading-snug"
+              >
+                <div className="font-semibold text-[hsl(28_70%_35%)] mb-0.5">
+                  {lang === "kn" ? "ಆಫ್‌ಲೈನ್ · ಡ್ರಾಫ್ಟ್ ಆಗಿ ಉಳಿಸಲಾಗುತ್ತದೆ" : "Offline · will be saved as a draft"}
+                </div>
+                <div className="text-[hsl(28_60%_30%)]">
+                  {lang === "kn" ? "ಈ ಮೊತ್ತ " : "This amount is based on data cached at "}
+                  <span className="font-mono">
+                    {new Date().toLocaleString(lang === "kn" ? "kn-IN" : "en-IN")}
+                  </span>
+                  {lang === "kn"
+                    ? " ಸಮಯದ ಡೇಟಾ ಆಧಾರಿತ. ಇಂಟರ್ನೆಟ್ ಬಂದಾಗ ಪರಿಶೀಲಿಸಲಾಗುತ್ತದೆ."
+                    : ". It will be checked against the latest server records when you're back online."}
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-lg border border-border bg-secondary/40 p-3">
+              <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                {lang === "kn" ? "ನಿವ್ವಳ ಬಾಕಿ" : "Net paid to date"}
+              </div>
+              <div
+                data-testid="contractor-settle-net-paid"
+                className="text-lg font-semibold text-[hsl(var(--accent))] mt-1"
+              >
+                ₹{Math.max(0, Number(data?.net_paid ?? 0))}
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-1">
+                {lang === "kn"
+                  ? "ಈ ಮೊತ್ತವನ್ನು ಇತ್ಯರ್ಥವಾಗಿ ದಾಖಲಿಸಲಾಗುತ್ತದೆ. ನಿವ್ವಳ ಬಾಕಿ ಶೂನ್ಯಕ್ಕೆ ಬರುತ್ತದೆ."
+                  : "This amount will be recorded as settled. Net paid drops to zero."}
+              </div>
+            </div>
+
+            {conflict && (
+              <div
+                data-testid="contractor-settle-conflict"
+                className="rounded-lg border border-red-300 bg-red-50 p-3 text-[11px]"
+              >
+                <div className="font-semibold text-red-700 mb-0.5">
+                  {lang === "kn" ? "ಸರ್ವರ್ ಬಾಕಿ ಬದಲಾಗಿದೆ" : "Server ledger has changed"}
+                </div>
+                <div className="text-red-800">
+                  {lang === "kn" ? "ಡ್ರಾಫ್ಟ್" : "Draft"}: <b>₹{conflict.client?.net_paid ?? "?"}</b>
+                  {" · "}
+                  {lang === "kn" ? "ಸರ್ವರ್" : "Server"}: <b>₹{conflict.server?.net_paid ?? "?"}</b>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setSettleOpen(false)}>
+              {t("cancel")}
+            </Button>
+            <Button
+              data-testid="confirm-contractor-settle-btn"
+              onClick={confirmSettleContractor}
+              className="bg-[hsl(var(--primary))] hover:bg-[hsl(var(--primary))]/90"
+            >
+              {lang === "kn" ? "ಇತ್ಯರ್ಥಗೊಳಿಸಿ" : "Confirm Settlement"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

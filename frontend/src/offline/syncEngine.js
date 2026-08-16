@@ -242,7 +242,14 @@ async function mirrorServerId(scope, entityType, localId, serverId, serverRow) {
 
 function safeDetail(err) {
   try {
-    if (err?.response?.data?.detail) return String(err.response.data.detail).slice(0, 300);
+    // FastAPI HTTPException(detail=dict) surfaces as
+    //   err.response.data.detail = {code, ...}
+    // Preserve the object VERBATIM so downstream review UIs can render
+    // structured fields (client/server sub-dicts). Only stringify when
+    // detail is a plain string.
+    const detail = err?.response?.data?.detail;
+    if (detail && typeof detail === "object") return detail;
+    if (typeof detail === "string") return detail.slice(0, 300);
     return String(err?.message || "unknown").slice(0, 300);
   } catch { return "error"; }
 }

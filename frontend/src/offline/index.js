@@ -39,5 +39,6 @@ export {
   listContractorPayments, createContractorPayment, deleteContractorPayment,
   listContractorReturns, createContractorReturn, deleteContractorReturn,
   getContractorLedgerWithLocal,
+  getPendingContractorSettlement, discardPendingContractorSettlement,
 } from "./dataLayer";
 export { drainQueue, installSyncTriggers } from "./syncEngine";
