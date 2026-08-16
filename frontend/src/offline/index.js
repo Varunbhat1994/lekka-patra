@@ -31,3 +31,4 @@ export {
   listContractors, createContractor, updateContractor,
   listAttendanceByDate, saveAttendance,
 } from "./dataLayer";
+export { drainQueue, installSyncTriggers } from "./syncEngine";

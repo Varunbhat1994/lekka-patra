@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from core.database import db
 from security.authentication import get_current_user
 from security.authorization import require_write_access
+from services.sync_ops import idempotent
 
 
 router = APIRouter()
@@ -49,6 +50,9 @@ class WorkerIn(BaseModel):
     skill: Optional[str] = ""
     daily_rate: float
     worker_type: Optional[str] = "regular"
+    # Client-supplied idempotency key from offline sync queue. Optional
+    # so existing online callers are unaffected.
+    operation_id: Optional[str] = None
 
 
 # ---------------- Routes ----------------
@@ -61,22 +65,27 @@ async def list_workers(user: dict = Depends(get_current_user)):
 
 @router.post("/workers")
 async def create_worker(w: WorkerIn, user: dict = Depends(require_write_access)):
-    obj = Worker(user_id=user["user_id"], **w.model_dump())
-    doc = obj.model_dump()
-    doc["created_at"] = doc["created_at"].isoformat()
-    await db.workers.insert_one(doc)
-    return obj
+    async def do():
+        payload = w.model_dump(exclude={"operation_id"})
+        obj = Worker(user_id=user["user_id"], **payload)
+        doc = obj.model_dump()
+        doc["created_at"] = doc["created_at"].isoformat()
+        await db.workers.insert_one(doc)
+        return obj
+    return await idempotent(user["user_id"], w.operation_id, "workers", do)
 
 
 @router.put("/workers/{worker_id}")
 async def update_worker(worker_id: str, w: WorkerIn, user: dict = Depends(require_write_access)):
-    res = await db.workers.update_one(
-        {"id": worker_id, "user_id": user["user_id"]},
-        {"$set": w.model_dump()},
-    )
-    if res.matched_count == 0:
-        raise HTTPException(404, "Worker not found")
-    return {"ok": True}
+    async def do():
+        res = await db.workers.update_one(
+            {"id": worker_id, "user_id": user["user_id"]},
+            {"$set": w.model_dump(exclude={"operation_id"})},
+        )
+        if res.matched_count == 0:
+            raise HTTPException(404, "Worker not found")
+        return {"ok": True}
+    return await idempotent(user["user_id"], w.operation_id, "workers", do)
 
 
 @router.delete("/workers/{worker_id}")

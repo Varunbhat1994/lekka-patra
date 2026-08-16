@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from core.database import db
 from security.authentication import get_current_user
 from security.authorization import require_write_access
+from services.sync_ops import idempotent
 
 
 router = APIRouter()
@@ -72,6 +73,8 @@ class AttendanceIn(BaseModel):
     # this field is explicitly excluded from the $set so the existing
     # PRESERVE-snapshot invariant remains bit-for-bit unchanged.
     daily_rate_snapshot: Optional[float] = None
+    # Client-supplied idempotency key from offline sync queue.
+    operation_id: Optional[str] = None
 
 
 # ---------------- Routes ----------------
@@ -97,6 +100,12 @@ async def list_attendance(
 
 @router.post("/attendance")
 async def upsert_attendance(a: AttendanceIn, user: dict = Depends(require_write_access)):
+    async def do():
+        return await _upsert_attendance_body(a, user)
+    return await idempotent(user["user_id"], a.operation_id, "attendance", do)
+
+
+async def _upsert_attendance_body(a: AttendanceIn, user: dict):
     # Reject attendance for workers the caller doesn't own.
     worker = await db.workers.find_one(
         {"id": a.worker_id, "user_id": user["user_id"]}, {"_id": 0}
@@ -142,7 +151,7 @@ async def upsert_attendance(a: AttendanceIn, user: dict = Depends(require_write_
         # Explicitly strip daily_rate_snapshot from the update payload so
         # the preserve-on-update invariant is IMPOSSIBLE to break even if
         # the client sent a value.
-        update_doc = a.model_dump(exclude={"daily_rate_snapshot"})
+        update_doc = a.model_dump(exclude={"daily_rate_snapshot", "operation_id"})
         await db.attendance.update_one(
             {"id": existing["id"]},
             {"$set": update_doc},
@@ -161,7 +170,7 @@ async def upsert_attendance(a: AttendanceIn, user: dict = Depends(require_write_
     obj = Attendance(
         user_id=user["user_id"],
         daily_rate_snapshot=snapshot_value,
-        **a.model_dump(exclude={"daily_rate_snapshot"}),
+        **a.model_dump(exclude={"daily_rate_snapshot", "operation_id"}),
     )
     doc = obj.model_dump()
     doc["created_at"] = doc["created_at"].isoformat()

@@ -44,6 +44,7 @@ from core.database import db
 from security.authentication import get_current_user
 from security.authorization import require_write_access
 from services.ledger import compute_contractor_ledger
+from services.sync_ops import idempotent
 
 
 router = APIRouter()
@@ -59,6 +60,7 @@ class ContractorIn(BaseModel):
     name: str
     mobile: Optional[str] = ""
     notes: Optional[str] = ""
+    operation_id: Optional[str] = None
 
 
 class VisitIn(BaseModel):
@@ -95,28 +97,32 @@ async def list_contractors(user: dict = Depends(get_current_user)):
 
 @router.post("/contractors")
 async def create_contractor(c: ContractorIn, user: dict = Depends(require_write_access)):
-    doc = {
-        "id": str(uuid.uuid4()),
-        "user_id": user["user_id"],
-        "name": c.name,
-        "mobile": c.mobile or "",
-        "notes": c.notes or "",
-        "created_at": _now_utc().isoformat(),
-    }
-    await db.contractors.insert_one(doc)
-    doc.pop("_id", None)
-    return doc
+    async def do():
+        doc = {
+            "id": str(uuid.uuid4()),
+            "user_id": user["user_id"],
+            "name": c.name,
+            "mobile": c.mobile or "",
+            "notes": c.notes or "",
+            "created_at": _now_utc().isoformat(),
+        }
+        await db.contractors.insert_one(doc)
+        doc.pop("_id", None)
+        return doc
+    return await idempotent(user["user_id"], c.operation_id, "contractors", do)
 
 
 @router.put("/contractors/{cid}")
 async def update_contractor(cid: str, c: ContractorIn, user: dict = Depends(require_write_access)):
-    res = await db.contractors.update_one(
-        {"id": cid, "user_id": user["user_id"]},
-        {"$set": {"name": c.name, "mobile": c.mobile or "", "notes": c.notes or ""}},
-    )
-    if res.matched_count == 0:
-        raise HTTPException(404, "Contractor not found")
-    return {"ok": True}
+    async def do():
+        res = await db.contractors.update_one(
+            {"id": cid, "user_id": user["user_id"]},
+            {"$set": {"name": c.name, "mobile": c.mobile or "", "notes": c.notes or ""}},
+        )
+        if res.matched_count == 0:
+            raise HTTPException(404, "Contractor not found")
+        return {"ok": True}
+    return await idempotent(user["user_id"], c.operation_id, "contractors", do)
 
 
 @router.delete("/contractors/{cid}")

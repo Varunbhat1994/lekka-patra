@@ -4,6 +4,7 @@ import { t as translate } from "@/i18n";
 import {
   computeAccountScope, runHydration, getHydrationProgress,
   isOfflineReady, markLastOnline, HYDRATION_STEPS,
+  installSyncTriggers, drainQueue,
 } from "@/offline";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -117,6 +118,14 @@ export function AppProvider({ children }) {
     };
   }, [user, startHydration]);
 
+  // Sync-engine triggers: online / visibilitychange / boot. Drains
+  // the SYNC_QUEUE for the currently-active accountScope only. See
+  // Step 2 §2/§3 — this is the only place that drains the queue.
+  useEffect(() => {
+    if (!accountScope) return undefined;
+    return installSyncTriggers(() => accountScope);
+  }, [accountScope]);
+
   const logout = async () => {
     try { await axios.post(`${API}/auth/logout`); } catch {}
     setUser(null);
@@ -137,6 +146,7 @@ export function AppProvider({ children }) {
       // Offline additions:
       accountScope, offlineReady, hydrationProgress, isOnline,
       HYDRATION_STEPS,
+      drainQueue: () => accountScope ? drainQueue(accountScope) : Promise.resolve(null),
     }}>
       {children}
     </AppContext.Provider>

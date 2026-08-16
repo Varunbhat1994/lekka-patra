@@ -263,7 +263,13 @@ export async function saveAttendance(scope, form) {
     // never overwrite (mirrors backend UPDATE invariant).
     let snapshot = existing?.daily_rate_snapshot;
     if (snapshot == null) {
-      const cachedWorker = await findByServerId(STORES.WORKERS, scope, form.worker_id);
+      // Prefer server_id lookup, but fall back to local_id for
+      // offline-created workers whose server_id isn't assigned yet.
+      let cachedWorker = await findByServerId(STORES.WORKERS, scope, form.worker_id);
+      if (!cachedWorker) {
+        const db = await (await import("./db")).getDB();
+        cachedWorker = await db.get(STORES.WORKERS, form.worker_id);
+      }
       const raw = cachedWorker?.daily_rate;
       snapshot =
         typeof raw === "number" && isFinite(raw) && raw >= 0 ? raw : null;
