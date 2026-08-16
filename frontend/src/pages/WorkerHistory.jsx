@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, FilePdf, CheckCircle, XCircle, Handshake, Wallet, ArrowDown, ArrowUp } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
+import { getWorkerLedger } from "@/offline";
 import { fmtDate } from "@/lib/formatDate";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
@@ -15,7 +16,7 @@ const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov
 export default function WorkerHistory() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { lang } = useApp();
+  const { lang, accountScope } = useApp();
   const [worker, setWorker] = useState(null);
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(""); // "" = all months
@@ -40,13 +41,18 @@ export default function WorkerHistory() {
 
   useEffect(() => {
     (async () => {
-      try {
-        const r = await axios.get(`${API}/ledger/${id}${rangeQ()}`);
-        setLed(r.data);
-        setWorker(r.data?.worker || null);
-      } catch { toast.error("Failed to load history"); }
+      if (!accountScope) return;
+      const data = await getWorkerLedger(accountScope, id, rangeQ());
+      if (data) {
+        setLed(data);
+        setWorker(data?.worker || null);
+      } else {
+        // Offline AND no cache for this range — surface a clear message
+        // instead of a blank screen.
+        toast.error(lang === "kn" ? "ಈ ಶ್ರೇಣಿಗೆ ಆಫ್‌ಲೈನ್ ಡೇಟಾ ಇಲ್ಲ" : "No offline data for this range");
+      }
     })();
-  }, [id, year, month]);
+  }, [id, year, month, accountScope]);
 
   // Group all events by month for expandable sections
   const byMonth = useMemo(() => {

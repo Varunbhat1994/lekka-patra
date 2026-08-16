@@ -536,3 +536,145 @@ export async function saveSettlement(scope, form, snapshot = null) {
   }
 }
 
+
+// ---------- READ-THROUGH CACHES (§P1 offline UX) ------------------------
+//
+// Every helper below is a pure read: online → server, mirror the raw
+// response into IDB with a compact wrapper carrying `cached_at`, then
+// return the raw server payload. Offline → return the last cached
+// snapshot verbatim, with a `_stale: true` marker + `_cached_at` so the
+// UI can render a "last synced at X" hint. Returns null when the cache
+// is also empty (first-time offline for this exact key).
+//
+// Cache keys mirror schema.js:
+//   worker_ledger_cache:      "<scope>|<worker_id>|<range>"
+//   contractor_ledger_cache:  "<scope>|<contractor_id>|<range>"
+//   calendar_cache:           "<scope>|<worker_id>|<year>|<month>"
+//   dashboard_cache:          keyed on account_scope (single row)
+//
+// Range key convention: "" (empty) for current-cycle, or "YYYY" /
+// "YYYY-MM" for history filters.
+
+async function readCache(store, cacheKey, scope) {
+  const db = await (await import("./db")).getDB();
+  const row = await db.get(store, cacheKey);
+  if (!row || row.account_scope !== scope) return null;
+  return { ...row.snapshot, _stale: true, _cached_at: row.cached_at };
+}
+
+async function writeCache(store, cacheKey, scope, extraKeys, snapshot) {
+  await put(store, scope, {
+    cache_key: cacheKey,
+    account_scope: scope,
+    ...extraKeys,
+    snapshot,
+    cached_at: nowIso(),
+  });
+}
+
+export async function getWorkerLedger(scope, workerId, range = "") {
+  requireScope(scope);
+  const cacheKey = `${scope}|${workerId}|${range}`;
+  const url = range
+    ? `${API}/ledger/${workerId}${range}`
+    : `${API}/ledger/${workerId}`;
+  try {
+    const { data } = await axios.get(url);
+    await writeCache(STORES.WORKER_LEDGER_CACHE, cacheKey, scope, { worker_id: workerId }, data);
+    return data;
+  } catch (err) {
+    return await readCache(STORES.WORKER_LEDGER_CACHE, cacheKey, scope);
+  }
+}
+
+export async function getContractorLedger(scope, contractorId, range = "") {
+  requireScope(scope);
+  const cacheKey = `${scope}|${contractorId}|${range}`;
+  const url = range
+    ? `${API}/contractors/${contractorId}/ledger${range}`
+    : `${API}/contractors/${contractorId}/ledger`;
+  try {
+    const { data } = await axios.get(url);
+    await writeCache(STORES.CONTRACTOR_LEDGER_CACHE, cacheKey, scope, { contractor_id: contractorId }, data);
+    return data;
+  } catch (err) {
+    return await readCache(STORES.CONTRACTOR_LEDGER_CACHE, cacheKey, scope);
+  }
+}
+
+export async function getDashboardSnapshot(scope) {
+  requireScope(scope);
+  try {
+    const { data } = await axios.get(`${API}/dashboard`);
+    await put(STORES.DASHBOARD_CACHE, scope, {
+      account_scope: scope, snapshot: data, cached_at: nowIso(),
+    });
+    return data;
+  } catch (err) {
+    const db = await (await import("./db")).getDB();
+    const row = await db.get(STORES.DASHBOARD_CACHE, scope);
+    if (!row) return null;
+    return { ...row.snapshot, _stale: true, _cached_at: row.cached_at };
+  }
+}
+
+export async function getCalendarMonth(scope, workerId, year, month) {
+  requireScope(scope);
+  const cacheKey = `${scope}|${workerId}|${year}|${month}`;
+  try {
+    const { data } = await axios.get(
+      `${API}/calendar/month?worker_id=${workerId}&year=${year}&month=${month}`
+    );
+    await writeCache(
+      STORES.CALENDAR_CACHE, cacheKey, scope,
+      { worker_id: workerId, year, month }, data
+    );
+    return data;
+  } catch (err) {
+    const cached = await readCache(STORES.CALENDAR_CACHE, cacheKey, scope);
+    if (cached) return cached;
+    // Fallback: reconstruct records from the ATTENDANCE store for this
+    // month. Better than a blank grid — the user has entered these
+    // attendance rows themselves during the offline session.
+    const all = await listByScope(STORES.ATTENDANCE, scope);
+    const y = String(year);
+    const m = String(month).padStart(2, "0");
+    const records = all
+      .filter((a) => a.worker_id === workerId && (a.date || "").startsWith(`${y}-${m}`))
+      .map((a) => ({ date: a.date, status: a.status, overtime_hours: a.overtime_hours || 0 }));
+    return { records, _stale: true, _cached_at: null };
+  }
+}
+
+export async function getCalendarDate(scope, date) {
+  requireScope(scope);
+  try {
+    const { data } = await axios.get(`${API}/calendar/date?date=${date}`);
+    return data;
+  } catch (err) {
+    // Reconstruct from local ATTENDANCE + WORKERS caches. Purely
+    // offline — no server call. Guarantees the day-sheet still opens.
+    const [att, workers] = await Promise.all([
+      listByScope(STORES.ATTENDANCE, scope),
+      listByScope(STORES.WORKERS, scope),
+    ]);
+    const workerById = new Map();
+    for (const w of workers) {
+      workerById.set(w.server_id || w.local_id, w);
+    }
+    const rowsForDate = att.filter((a) => a.date === date);
+    const out = rowsForDate.map((a) => {
+      const w = workerById.get(a.worker_id) || {};
+      return {
+        worker_id: a.worker_id,
+        name: w.name || "—",
+        daily_rate: w.daily_rate ?? null,
+        status: a.status,
+        overtime_hours: a.overtime_hours || 0,
+        daily_rate_snapshot: a.daily_rate_snapshot ?? null,
+      };
+    });
+    return { workers: out, _stale: true };
+  }
+}
+

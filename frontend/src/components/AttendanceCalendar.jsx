@@ -5,6 +5,7 @@ import {
   Info, ClipboardText,
 } from "@phosphor-icons/react";
 import { useApp } from "@/context/AppContext";
+import { listWorkers, getCalendarMonth, getCalendarDate } from "@/offline";
 
 // -------- helpers --------
 
@@ -102,7 +103,7 @@ function EmptyDateIllustration({ className = "" }) {
 // -------- main component --------
 
 export default function AttendanceCalendar() {
-  const { API, lang } = useApp();
+  const { API, lang, accountScope } = useApp();
   const now = new Date();
   const [workers, setWorkers] = useState(null);
   const [selectedWorkerId, setSelectedWorkerId] = useState("");
@@ -116,20 +117,22 @@ export default function AttendanceCalendar() {
 
   useEffect(() => {
     let mounted = true;
-    axios.get(`${API}/workers`).then(r => {
+    if (!accountScope) return () => {};
+    listWorkers(accountScope).then((rows) => {
       if (!mounted) return;
-      const sorted = sortWorkersOldestFirst(r.data || []);
+      const sorted = sortWorkersOldestFirst(rows || []);
       setWorkers(sorted);
       if (sorted.length > 0) setSelectedWorkerId(sorted[0].id);
     }).catch(() => { if (mounted) setWorkers([]); });
     return () => { mounted = false; };
-  }, [API]);
+  }, [accountScope]);
 
   useEffect(() => {
-    if (!selectedWorkerId) { setRecords([]); return; }
-    const url = `${API}/calendar/month?worker_id=${selectedWorkerId}&year=${year}&month=${month}`;
-    axios.get(url).then(r => setRecords(r.data?.records || [])).catch(() => setRecords([]));
-  }, [API, selectedWorkerId, year, month]);
+    if (!selectedWorkerId || !accountScope) { setRecords([]); return; }
+    getCalendarMonth(accountScope, selectedWorkerId, year, month)
+      .then((d) => setRecords(d?.records || []))
+      .catch(() => setRecords([]));
+  }, [accountScope, selectedWorkerId, year, month]);
 
   const workerMarks = useMemo(() => {
     const m = new Map();
@@ -165,8 +168,8 @@ export default function AttendanceCalendar() {
     setSheetLoading(true);
     setSheetWorkers([]);
     try {
-      const r = await axios.get(`${API}/calendar/date?date=${dateStr}`);
-      setSheetWorkers(r.data?.workers || []);
+      const d = accountScope ? await getCalendarDate(accountScope, dateStr) : null;
+      setSheetWorkers(d?.workers || []);
     } catch {
       setSheetWorkers([]);
     } finally {

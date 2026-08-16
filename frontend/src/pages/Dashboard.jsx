@@ -4,6 +4,7 @@ import AppShell from "@/components/AppShell";
 import FeedbackBell from "@/components/FeedbackBell";
 import AttendanceCalendar from "@/components/AttendanceCalendar";
 import { useApp } from "@/context/AppContext";
+import { getDashboardSnapshot } from "@/offline";
 
 function greetingForHour(hour, lang) {
   // Local-time buckets per spec:
@@ -88,7 +89,7 @@ function LeafDecor({ className = "" }) {
 }
 
 export default function Dashboard() {
-  const { t, user, API, lang } = useApp();
+  const { t, user, API, lang, accountScope } = useApp();
   const [data, setData] = useState(null);
   // Local-time greeting; re-check every minute so it flips at 05:00 / 12:00
   // / 17:00 / 21:00 boundaries without a manual refresh.
@@ -105,8 +106,9 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    axios.get(`${API}/dashboard`).then(r => setData(r.data)).catch(()=>{});
-  }, [API]);
+    if (!accountScope) return;
+    getDashboardSnapshot(accountScope).then((d) => { if (d) setData(d); }).catch(() => {});
+  }, [accountScope]);
 
   const firstName = user?.name?.split(" ")[0] || "";
   const farmLabel = firstName ? `${firstName}'s Farm` : "My Farm";

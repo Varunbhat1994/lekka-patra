@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "sonner";
 import { CaretRight, User, Wallet, ClockCounterClockwise, FilePdf, Plus, ArrowUUpLeft, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
-import { createAdvance, createReturn, saveSettlement } from "@/offline";
+import { createAdvance, createReturn, saveSettlement, listWorkers, getWorkerLedger } from "@/offline";
 
 export default function Ledger() {
   const { t, user, API, lang, accountScope, isOnline } = useApp();
@@ -54,15 +54,18 @@ export default function Ledger() {
   };
 
   const loadAll = async () => {
-    const w = await axios.get(`${API}/workers`);
-    setWorkers(w.data);
+    if (!accountScope) return;
+    const w = await listWorkers(accountScope);
+    setWorkers(w);
     const q = rangeParams();
-    const results = await Promise.all(w.data.map(x => axios.get(`${API}/ledger/${x.id}${q}`).then(r=>r.data).catch(()=>null)));
+    const results = await Promise.all(
+      w.map(x => getWorkerLedger(accountScope, x.id, q).catch(() => null))
+    );
     const map = {};
-    w.data.forEach((x, i) => { if (results[i]) map[x.id] = results[i]; });
+    w.forEach((x, i) => { if (results[i]) map[x.id] = results[i]; });
     setLedgers(map);
   };
-  useEffect(() => { loadAll(); }, [histYear, histMonth]);
+  useEffect(() => { loadAll(); }, [accountScope, histYear, histMonth]);
 
   const openAdvance = (w, initialMode = "advance") => {
     setSelected(w);
@@ -100,18 +103,13 @@ export default function Ledger() {
 
   const openSettle = async (w) => {
     // Always use CURRENT-cycle ledger for settle (ignore history filter).
-    let l, cachedAt = new Date().toISOString();
-    try {
-      const r = await axios.get(`${API}/ledger/${w.id}`);
-      l = r.data;
-    } catch {
-      // Offline / network failure: fall back to whatever loadAll() last
-      // pulled. This value is what the user is looking at on-screen, so
-      // pinning cached_at to its origin (or "now" if we don't know) is
-      // honest enough for the draft-revalidation contract.
-      l = ledgers[w.id];
-    }
+    // getWorkerLedger caches on success and falls back to the last cached
+    // snapshot when offline. If offline we tag cached_at from the cached
+    // row so the settle dialog can show "cached at X" and the draft can
+    // carry the real cache timestamp to the server for revalidation.
+    const l = await getWorkerLedger(accountScope, w.id);
     const earned = Math.max(0, Number(l?.pending ?? 0));
+    const cachedAt = l?._cached_at || new Date().toISOString();
     setSettleForm({
       worker: w, led: l, mode: "actual_paid",
       actual: String(earned),

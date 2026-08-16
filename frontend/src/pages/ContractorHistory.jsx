@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, FilePdf, Handshake, ArrowDown, ArrowUp, User } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
+import { getContractorLedger } from "@/offline";
 import { fmtDate } from "@/lib/formatDate";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -14,7 +15,7 @@ const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov
 export default function ContractorHistory() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { lang } = useApp();
+  const { lang, accountScope } = useApp();
   const [contractor, setContractor] = useState(null);
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState("");
@@ -39,13 +40,16 @@ export default function ContractorHistory() {
 
   useEffect(() => {
     (async () => {
-      try {
-        const r = await axios.get(`${API}/contractors/${id}/ledger${rangeQ()}`);
-        setLed(r.data);
-        setContractor(r.data?.contractor || null);
-      } catch { toast.error("Failed"); }
+      if (!accountScope) return;
+      const data = await getContractorLedger(accountScope, id, rangeQ());
+      if (data) {
+        setLed(data);
+        setContractor(data?.contractor || null);
+      } else {
+        toast.error(lang === "kn" ? "ಈ ಶ್ರೇಣಿಗೆ ಆಫ್‌ಲೈನ್ ಡೇಟಾ ಇಲ್ಲ" : "No offline data for this range");
+      }
     })();
-  }, [id, year, month]);
+  }, [id, year, month, accountScope]);
 
   const byMonth = useMemo(() => {
     if (!led) return {};
