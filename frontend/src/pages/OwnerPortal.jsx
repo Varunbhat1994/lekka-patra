@@ -9,8 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   ShieldCheck, Users, MapPin, Megaphone, ChatCircleDots, ArrowLeft,
-  Plus, Trash, Star, ImageSquare,
+  Plus, Trash, Star, ImageSquare, MagnifyingGlass,
 } from "@phosphor-icons/react";
+import { fmtDate, fmtDateTime } from "@/lib/formatDate";
 
 const TABS = [
   { key: "users", icon: Users, label: "Users" },
@@ -76,41 +77,203 @@ export default function OwnerPortal() {
   );
 }
 
+// ------------- Owner Users (Directory + Activity) ---------------
+//
+// Reuses the existing /api/owner/users endpoint. The endpoint now
+// returns a server-computed `activity_status` derived from a throttled
+// `last_active_at` timestamp on the user document — no separate user
+// table, no duplicated PII. Sensitive fields (password/OTP/session
+// tokens) are excluded by the endpoint's projection whitelist. Users
+// without any recorded activity are surfaced as "Not yet active",
+// never inferred from created_at.
+
+const STATUS_META = {
+  active:         { label: "Active",        cls: "bg-emerald-100 text-emerald-700" },
+  week:           { label: "1 week ago",    cls: "bg-blue-100 text-blue-700" },
+  month:          { label: "1 month ago",   cls: "bg-amber-100 text-amber-700" },
+  inactive:       { label: "Inactive",      cls: "bg-rose-100 text-rose-700" },
+  not_yet_active: { label: "Not yet active", cls: "bg-slate-100 text-slate-600" },
+};
+
 function OwnerUsers({ API }) {
-  const [rows, setRows] = useState([]);
-  useEffect(() => { axios.get(`${API}/owner/users`).then(r => setRows(r.data)); }, [API]);
-  return (
-    <div className="space-y-2">
-      <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground pb-1">
-        {rows.length} registered users
+  const [rows, setRows] = useState(null); // null = loading, [] = empty
+  const [error, setError] = useState(null);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    axios.get(`${API}/owner/users`)
+      .then(r => { if (!cancelled) setRows(r.data || []); })
+      .catch(err => { if (!cancelled) setError(err?.response?.status || "error"); });
+    return () => { cancelled = true; };
+  }, [API]);
+
+  if (error) {
+    return (
+      <div data-testid="owner-users-error" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+        Failed to load users ({String(error)}).
       </div>
-      {rows.map(u => (
-        <div key={u.user_id} data-testid={`user-row-${u.user_id}`}
-          className="rounded-lg border border-border bg-card px-3 py-3 flex items-center gap-3">
-          <div className="h-9 w-9 rounded-full bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] grid place-items-center text-sm font-semibold">
-            {(u.name || "?").slice(0,1).toUpperCase()}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="font-medium truncate">{u.name || "—"}</span>
-              {u.role === "owner" && (
-                <span className="text-[9px] uppercase tracking-wider bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] px-1.5 py-0.5 rounded-full font-semibold">
-                  Owner
-                </span>
-              )}
-              {u.is_paid && (
-                <span className="text-[9px] uppercase tracking-wider bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded-full font-semibold">
-                  Paid
-                </span>
-              )}
-            </div>
-            <div className="text-[11px] text-muted-foreground truncate">
-              {u.mobile ? `+${u.mobile}` : (u.email || "—")}
-              {u.district ? ` · ${u.district}` : ""}
-            </div>
-          </div>
+    );
+  }
+  if (rows === null) {
+    return <div className="text-sm text-muted-foreground">Loading…</div>;
+  }
+
+  // Client-side derivations only; the source-of-truth `last_active_at`
+  // stays on the wire response verbatim.
+  const norm = (v) => String(v || "").toLowerCase();
+  const filtered = rows
+    .filter(u => status === "all" || u.activity_status === status)
+    .filter(u => {
+      if (!q.trim()) return true;
+      const needle = norm(q);
+      return norm(u.name).includes(needle)
+          || norm(u.email).includes(needle)
+          || norm(u.mobile).includes(needle);
+    })
+    .sort((a, b) => {
+      // Most recently active first; users with no activity sink to the
+      // bottom, then by joined-date desc.
+      const la = a.last_active_at ? Date.parse(a.last_active_at) : 0;
+      const lb = b.last_active_at ? Date.parse(b.last_active_at) : 0;
+      if (lb !== la) return lb - la;
+      const ca = a.created_at ? Date.parse(a.created_at) : 0;
+      const cb = b.created_at ? Date.parse(b.created_at) : 0;
+      return cb - ca;
+    });
+
+  const counts = {
+    total: rows.length,
+    active: rows.filter(u => u.activity_status === "active").length,
+    week:   rows.filter(u => u.activity_status === "week").length,
+    month:  rows.filter(u => u.activity_status === "month").length,
+    inactive: rows.filter(u => u.activity_status === "inactive").length,
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Summary counts */}
+      <div className="grid grid-cols-2 gap-2" data-testid="owner-users-summary">
+        <SummaryTile testid="owner-users-total"    label="Total users"    val={counts.total}/>
+        <SummaryTile testid="owner-users-active"   label="Active"         val={counts.active} accent="emerald"/>
+        <SummaryTile testid="owner-users-week"     label="1 week ago"     val={counts.week}   accent="blue"/>
+        <SummaryTile testid="owner-users-month"    label="1 month ago"    val={counts.month}  accent="amber"/>
+        <SummaryTile testid="owner-users-inactive" label="3+ months inactive" val={counts.inactive} accent="rose"/>
+      </div>
+
+      {/* Search + status filter */}
+      <div className="space-y-2">
+        <div className="relative">
+          <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"/>
+          <Input
+            data-testid="owner-users-search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search name, email, phone"
+            className="pl-8 h-9 text-sm"
+          />
         </div>
-      ))}
+        <div className="flex flex-wrap gap-1.5" data-testid="owner-users-filter">
+          {[
+            { k: "all",            label: "All" },
+            { k: "active",         label: "Active" },
+            { k: "week",           label: "1w" },
+            { k: "month",          label: "1m" },
+            { k: "inactive",       label: "3m+" },
+            { k: "not_yet_active", label: "Not yet" },
+          ].map(({ k, label }) => (
+            <button key={k}
+              data-testid={`owner-users-filter-${k}`}
+              onClick={() => setStatus(k)}
+              className={`px-2.5 h-7 rounded-full text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+                status === k ? "bg-[hsl(var(--foreground))] text-white"
+                             : "bg-secondary text-muted-foreground hover:bg-secondary/70"
+              }`}
+            >{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Table header */}
+      <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground pb-1 flex items-center justify-between">
+        <span>{filtered.length} showing</span>
+        <span>sorted by last active ↓</span>
+      </div>
+
+      {/* Empty state */}
+      {filtered.length === 0 && (
+        <div data-testid="owner-users-empty" className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          No users match {q ? `“${q}”` : "this filter"}.
+        </div>
+      )}
+
+      {/* Rows */}
+      {filtered.map(u => {
+        const meta = STATUS_META[u.activity_status] || STATUS_META.not_yet_active;
+        const firstName = (u.name || "").trim().split(/\s+/)[0] || (u.email ? u.email.split("@")[0] : "—");
+        return (
+          <div key={u.user_id} data-testid={`user-row-${u.user_id}`}
+            data-activity-status={u.activity_status}
+            className="rounded-lg border border-border bg-card px-3 py-3 flex items-start gap-3">
+            <div className="h-9 w-9 rounded-full bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] grid place-items-center text-sm font-semibold shrink-0">
+              {(u.name || u.email || "?").slice(0,1).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0 space-y-1.5">
+              {/* Row 1 — first name + role/paid badges + status pill */}
+              <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                <span data-testid={`user-firstname-${u.user_id}`} className="font-medium truncate">{firstName}</span>
+                {u.role === "owner" && (
+                  <span className="text-[9px] uppercase tracking-wider bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))] px-1.5 py-0.5 rounded-full font-semibold">Owner</span>
+                )}
+                {u.is_paid && (
+                  <span className="text-[9px] uppercase tracking-wider bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded-full font-semibold">Paid</span>
+                )}
+                <span
+                  data-testid={`user-status-${u.user_id}`}
+                  className={`ml-auto text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-semibold ${meta.cls}`}
+                >{meta.label}</span>
+              </div>
+              {/* Row 2 — contact + email */}
+              <div className="text-[11px] text-muted-foreground grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+                <span>Contact</span>
+                <span data-testid={`user-contact-${u.user_id}`} className="truncate">
+                  {u.mobile ? `+${u.mobile}` : "—"}
+                </span>
+                <span>Email</span>
+                <span data-testid={`user-email-${u.user_id}`} className="truncate">
+                  {u.email || "—"}
+                </span>
+                <span>Joined</span>
+                <span data-testid={`user-joined-${u.user_id}`} className="truncate">
+                  {u.created_at ? fmtDate(u.created_at) : "—"}
+                </span>
+                <span>Last active</span>
+                <span data-testid={`user-lastactive-${u.user_id}`} className="truncate">
+                  {u.last_active_at ? fmtDateTime(u.last_active_at) : "—"}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SummaryTile({ label, val, accent, testid }) {
+  const accentMap = {
+    emerald: "border-emerald-200 text-emerald-700",
+    blue:    "border-blue-200 text-blue-700",
+    amber:   "border-amber-200 text-amber-700",
+    rose:    "border-rose-200 text-rose-700",
+  };
+  const cls = accent ? accentMap[accent] : "border-border";
+  return (
+    <div data-testid={testid} className={`rounded-xl border p-3 bg-card ${cls}`}>
+      <div className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
+      <div className="text-2xl font-semibold tracking-tight mt-1">{val}</div>
     </div>
   );
 }

@@ -18,6 +18,44 @@ def now_utc():
     return datetime.now(timezone.utc)
 
 
+# ---- Activity status buckets (docs/OwnerPortal user directory) --------
+# Buckets are derived from an EXPLICIT `last_active_at` timestamp, never
+# from `created_at`. Backwards compat: users without any recorded
+# activity fall into "not_yet_active" — the UI shows a distinct label.
+ACTIVITY_BUCKETS = ("active", "week", "month", "inactive", "not_yet_active")
+
+
+def _activity_status(last_active_at) -> str:
+    """Map a UTC `last_active_at` to one of ACTIVITY_BUCKETS.
+
+    Rules (matches product spec):
+        <= 7 days   -> "active"
+        <= 30 days  -> "week"
+        <= 90 days  -> "month"
+        > 90 days   -> "inactive"
+        no value    -> "not_yet_active"
+    """
+    if not last_active_at:
+        return "not_yet_active"
+    try:
+        if isinstance(last_active_at, str):
+            dt = datetime.fromisoformat(last_active_at)
+        else:
+            dt = last_active_at
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return "not_yet_active"
+    delta_days = (now_utc() - dt).total_seconds() / 86400.0
+    if delta_days <= 7:
+        return "active"
+    if delta_days <= 30:
+        return "week"
+    if delta_days <= 90:
+        return "month"
+    return "inactive"
+
+
 class OwnerAdIn(BaseModel):
     image_url: str  # data URL or public URL
     title: Optional[str] = ""
@@ -29,11 +67,21 @@ class OwnerAdIn(BaseModel):
 
 @router.get("/owner/users")
 async def owner_users(user: dict = Depends(require_owner)):
+    """Owner-only user directory.
+
+    Projection is a whitelist — password/OTP/session_token and any other
+    sensitive authentication field must NEVER be included here even
+    though `require_owner` gates access. Adding `last_active_at` +
+    server-computed `activity_status` lets the Owner Portal render the
+    user directory without any extra round-trip.
+    """
     rows = await db.users.find(
         {}, {"_id": 0, "user_id": 1, "name": 1, "mobile": 1, "email": 1,
              "district": 1, "language": 1, "role": 1, "is_paid": 1,
-             "trial_start": 1, "created_at": 1},
+             "trial_start": 1, "created_at": 1, "last_active_at": 1},
     ).sort("created_at", -1).to_list(2000)
+    for r in rows:
+        r["activity_status"] = _activity_status(r.get("last_active_at"))
     return rows
 
 @router.get("/owner/analytics/districts")
