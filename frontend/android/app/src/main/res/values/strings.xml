@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Lekka Patra</string>
+    <string name="title_activity_main">Lekka Patra</string>
+    <string name="package_name">in.lekkapatra.app</string>
+    <string name="custom_url_scheme">in.lekkapatra.app</string>
+</resources>
