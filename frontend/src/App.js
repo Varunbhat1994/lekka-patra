@@ -6,7 +6,6 @@ import { Toaster } from "sonner";
 import LanguagePicker from "@/pages/LanguagePicker";
 import Login from "@/pages/Login";
 import ProfileSetup from "@/pages/ProfileSetup";
-import AuthCallback from "@/pages/AuthCallback";
 import OwnerPortal from "@/pages/OwnerPortal";
 import Dashboard from "@/pages/Dashboard";
 import Workers from "@/pages/Workers";
@@ -41,7 +40,14 @@ function LandingRoute() {
 
 function AppRouter() {
   const location = useLocation();
-  if (location.hash?.includes("session_id=")) return <AuthCallback />;
+  if (location.hash?.includes("session_id=")) {
+    // Legacy Google-OAuth callback path. Native auth no longer needs it —
+    // strip the hash and route to /login so it doesn't loop.
+    if (typeof window !== "undefined") {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    return <Navigate to="/login" replace/>;
+  }
   return (
     <Routes>
       <Route path="/" element={<LandingRoute />} />
