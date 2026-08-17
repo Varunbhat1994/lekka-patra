@@ -26,8 +26,8 @@ function TextField({ icon: Icon, prefix, ...props }) {
   return (
     <div className="flex items-center gap-2 rounded-xl border border-[hsl(28_45%_88%)] bg-white px-3 h-12">
       {Icon && (
-        <div className="w-8 h-8 rounded-full bg-[hsl(30_100%_95%)] grid place-items-center shrink-0">
-          <Icon size={16} className="text-[hsl(20_85%_55%)]"/>
+        <div className="w-8 h-8 rounded-full bg-[hsl(140_55%_94%)] grid place-items-center shrink-0">
+          <Icon size={16} className="text-[hsl(140_65%_35%)]"/>
         </div>
       )}
       {prefix && <span className="text-sm text-[hsl(220_15%_25%)]">{prefix}</span>}
@@ -43,8 +43,8 @@ function PasswordField({ value, onChange, placeholder, testid }) {
   const [show, setShow] = useState(false);
   return (
     <div className="flex items-center gap-2 rounded-xl border border-[hsl(28_45%_88%)] bg-white px-3 h-12">
-      <div className="w-8 h-8 rounded-full bg-[hsl(30_100%_95%)] grid place-items-center shrink-0">
-        <Lock size={16} className="text-[hsl(20_85%_55%)]"/>
+      <div className="w-8 h-8 rounded-full bg-[hsl(140_55%_94%)] grid place-items-center shrink-0">
+        <Lock size={16} className="text-[hsl(140_65%_35%)]"/>
       </div>
       <input
         data-testid={testid}
@@ -69,9 +69,9 @@ function PrimaryButton({ children, loading, testid, ...props }) {
       data-testid={testid}
       disabled={loading}
       {...props}
-      className="w-full h-12 rounded-2xl text-white font-semibold text-[15px] inline-flex items-center justify-center gap-2 shadow-[0_8px_20px_-6px_rgba(230,120,20,0.55)] active:scale-[0.995] transition"
+      className="w-full h-12 rounded-2xl text-white font-semibold text-[15px] inline-flex items-center justify-center gap-2 shadow-[0_8px_20px_-6px_rgba(30,130,60,0.55)] active:scale-[0.995] transition"
       style={{
-        background: "linear-gradient(180deg, hsl(30 95% 55%) 0%, hsl(22 85% 50%) 100%)",
+        background: "linear-gradient(180deg, hsl(140 60% 42%) 0%, hsl(142 70% 34%) 100%)",
         opacity: loading ? 0.75 : 1,
       }}
     >
@@ -178,8 +178,8 @@ export default function Login() {
   // -------- shared header --------
   const Header = ({ title, subtitle }) => (
     <div className="text-center pt-6 pb-4">
-      <div className="mx-auto w-16 h-16 rounded-2xl grid place-items-center shadow-[0_10px_24px_-8px_rgba(230,120,20,0.55)] mb-3"
-           style={{ background: "linear-gradient(180deg, hsl(30 95% 55%) 0%, hsl(22 85% 50%) 100%)" }}>
+      <div className="mx-auto w-16 h-16 rounded-2xl grid place-items-center shadow-[0_10px_24px_-8px_rgba(30,130,60,0.55)] mb-3"
+           style={{ background: "linear-gradient(180deg, hsl(140 60% 42%) 0%, hsl(142 70% 34%) 100%)" }}>
         <BookOpen size={30} weight="fill" className="text-white"/>
       </div>
       <div className="text-[26px] font-bold text-[hsl(220_18%_15%)] leading-tight">Lekka Patra</div>
@@ -209,7 +209,7 @@ export default function Login() {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <Label>Password</Label>
-              <button className="text-[12px] font-semibold text-[hsl(20_85%_50%)]"
+              <button className="text-[12px] font-semibold text-[hsl(140_65%_33%)]"
                       onClick={() => swap(MODES.FORGOT)} data-testid="login-forgot-link">
                 Forgot Password?
               </button>
@@ -226,7 +226,7 @@ export default function Login() {
             </button>
             <span className="text-[hsl(220_8%_65%)]">·</span>
             <button data-testid="login-create-link"
-              onClick={() => swap(MODES.REGISTER)} className="ml-3 font-semibold text-[hsl(20_85%_50%)]">
+              onClick={() => swap(MODES.REGISTER)} className="ml-3 font-semibold text-[hsl(140_65%_33%)]">
               Create Account
             </button>
           </div>
@@ -266,7 +266,7 @@ export default function Login() {
           <div className="text-center text-[12.5px] text-[hsl(220_10%_45%)] pt-1">
             Already have an account?{" "}
             <button data-testid="reg-back-link" onClick={() => swap(MODES.LOGIN)}
-                    className="font-semibold text-[hsl(20_85%_50%)]">Login</button>
+                    className="font-semibold text-[hsl(140_65%_33%)]">Login</button>
           </div>
         </div>
       </>
@@ -290,7 +290,7 @@ export default function Login() {
                 <TextField icon={Lock} data-testid="fp-code"
                   value={f.reset_code || ""} onChange={(e) => upd("reset_code", e.target.value)}
                   placeholder="6-digit code"/>
-                <div className="text-[11px] text-[hsl(20_75%_45%)] mt-1">
+                <div className="text-[11px] text-[hsl(140_65%_32%)] mt-1">
                   Code was auto-filled. Valid for 5 minutes.
                 </div>
               </div>
