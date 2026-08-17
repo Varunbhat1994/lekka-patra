@@ -1,164 +1,379 @@
-import { useApp } from "@/context/AppContext";
-import { Button } from "@/components/ui/button";
-import { GoogleLogo, Plant } from "@phosphor-icons/react";
+// Native authentication screen — Login / Register / Forgot / Recover
+// modes in a single file. Visuals match the approved reference: peach
+// background, orange gradient Book icon, orange gradient primary CTA,
+// +91 leading pill, lock icon in password field, eye toggle.
+//
+// All API calls go to /api/auth/* endpoints defined in
+// backend/routes/auth.py. On success, the bearer token is stored via
+// setAuthToken() from AppContext and refresh() re-loads /auth/me.
+import React, { useState } from "react";
+import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { useApp, setAuthToken } from "@/context/AppContext";
+import { toast } from "sonner";
+import {
+  Phone, Lock, Eye, EyeSlash, User, ArrowRight,
+  BookOpen, ArrowLeft,
+} from "@phosphor-icons/react";
 
-// Inline leafy hero motif (softer version of the Dashboard leaves).
-function LoginHero() {
+const MODES = { LOGIN: "login", REGISTER: "register",
+                FORGOT: "forgot", RECOVER: "recover" };
+
+// Small, single-purpose inputs. Keep visual language consistent with
+// the rest of the app (existing shadcn tokens, rounded-xl, hsl vars).
+
+function TextField({ icon: Icon, prefix, ...props }) {
   return (
-    <svg viewBox="0 0 400 220" xmlns="http://www.w3.org/2000/svg"
-         className="w-full h-full" preserveAspectRatio="xMidYMid slice"
-         aria-hidden="true">
-      <defs>
-        <linearGradient id="lg" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="hsl(140 45% 42%)"/>
-          <stop offset="1" stopColor="hsl(150 50% 30%)"/>
-        </linearGradient>
-        <linearGradient id="hills" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="hsl(140 30% 78%)"/>
-          <stop offset="1" stopColor="hsl(140 30% 62%)"/>
-        </linearGradient>
-      </defs>
-      <rect x="0" y="0" width="400" height="220" fill="url(#lg)"/>
-      {/* Sun */}
-      <circle cx="330" cy="50" r="26" fill="hsl(45 90% 78%)" opacity="0.9"/>
-      {/* Hills */}
-      <path d="M0 160 Q 100 120 180 150 T 400 140 V 220 H 0 Z" fill="url(#hills)" opacity="0.55"/>
-      <path d="M0 180 Q 120 150 240 170 T 400 180 V 220 H 0 Z" fill="url(#hills)" opacity="0.75"/>
-      {/* Farm workers silhouettes */}
-      <g fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.85">
-        <circle cx="120" cy="150" r="9"/>
-        <path d="M120 159 v22 M111 170 h18"/>
-        <path d="M120 181 l-6 20 M120 181 l6 20"/>
-        <circle cx="160" cy="150" r="9"/>
-        <path d="M160 159 v22 M151 170 h18"/>
-        <path d="M160 181 l-6 20 M160 181 l6 20"/>
-        <path d="M170 152 l 26 -18"/>
-        <path d="M195 132 l6 3 -3 6"/>
-      </g>
-      {/* Sprout */}
-      <g fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" opacity="0.9">
-        <path d="M260 200 v-16"/>
-        <path d="M260 190 C 254 186 250 184 246 184"/>
-        <path d="M260 190 C 266 186 270 184 274 184"/>
-      </g>
-    </svg>
-  );
-}
-
-// Two-farmer illustration (turbans + hoe) — mirrors the workers duo used
-// on the Dashboard's "Present Today" card, per the visual reference.
-function TwoFarmers({ className = "" }) {
-  return (
-    <svg viewBox="0 0 260 200" fill="none" xmlns="http://www.w3.org/2000/svg"
-         className={className} aria-hidden="true">
-      <g stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none">
-        {/* Farmer A: turban + face + torso */}
-        <path d="M60 46 c 0 -14, 10 -22, 22 -22 s 22 8 22 22"/>{/* turban */}
-        <path d="M60 46 h 44"/>
-        <circle cx="82" cy="60" r="14"/>{/* face */}
-        <path d="M74 66 q 8 6 16 0"/>{/* smile */}
-        <circle cx="76" cy="58" r="1.2" fill="currentColor"/>
-        <circle cx="88" cy="58" r="1.2" fill="currentColor"/>
-        <path d="M64 82 q 18 12 36 0 l 6 44 h -48 z"/>{/* shirt */}
-        <path d="M70 126 v 46 M94 126 v 46"/>{/* legs */}
-        {/* Farmer B: turban + face + torso, holding a hoe */}
-        <path d="M150 46 c 0 -14, 10 -22, 22 -22 s 22 8 22 22"/>
-        <path d="M150 46 h 44"/>
-        <circle cx="172" cy="60" r="14"/>
-        <path d="M164 66 q 8 6 16 0"/>
-        <circle cx="166" cy="58" r="1.2" fill="currentColor"/>
-        <circle cx="178" cy="58" r="1.2" fill="currentColor"/>
-        <path d="M154 82 q 18 12 36 0 l 6 44 h -48 z"/>
-        <path d="M160 126 v 46 M184 126 v 46"/>
-        {/* Hoe */}
-        <path d="M196 90 l 40 -40"/>
-        <path d="M232 46 l 10 4 -4 10 z"/>
-        {/* Ground + sprout */}
-        <path d="M20 178 h 220"/>
-        <path d="M120 168 c 0 -6 4 -10 8 -10 s 8 4 8 10"/>
-        <path d="M128 168 v -16"/>
-      </g>
-    </svg>
-  );
-}
-
-export default function Login() {
-  const { t, lang } = useApp();
-  const nav = useNavigate();
-
-  const signin = () => {
-    // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    const redirectUrl = window.location.origin + "/dashboard";
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
-  };
-
-  return (
-    <div className="min-h-screen bg-[hsl(var(--background))]">
-      <div className="mx-auto max-w-md min-h-screen relative flex flex-col">
-
-        {/* Hero */}
-        <div className="relative h-64 overflow-hidden">
-          <LoginHero />
-          {/* Two-farmer illustration at 50% visibility, layered over the hero */}
-          <TwoFarmers
-            className="absolute bottom-0 right-3 w-56 h-44 text-white opacity-50 pointer-events-none"
-          />
-          <div className="absolute top-6 left-6 flex items-center gap-2 text-white">
-            <div className="h-10 w-10 rounded-xl bg-white/20 backdrop-blur-md grid place-items-center border border-white/30">
-              <Plant size={22} weight="duotone" />
-            </div>
-            <span className="text-lg font-semibold tracking-tight">ಲೆಕ್ಕ ಪತ್ರ</span>
-          </div>
+    <div className="flex items-center gap-2 rounded-xl border border-[hsl(28_45%_88%)] bg-white px-3 h-12">
+      {Icon && (
+        <div className="w-8 h-8 rounded-full bg-[hsl(30_100%_95%)] grid place-items-center shrink-0">
+          <Icon size={16} className="text-[hsl(20_85%_55%)]"/>
         </div>
-
-        {/* Card */}
-        <div className="px-6 -mt-10 relative flex-1 flex flex-col">
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-xl">
-            <div className="text-xs uppercase tracking-[0.24em] text-[hsl(var(--primary))] font-semibold">
-              {lang === "kn" ? "ಸ್ವಾಗತ" : "Welcome"}
-            </div>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-foreground">
-              {t("app_name")}
-            </h1>
-            <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              {t("tagline")}
-            </p>
-
-            <Button
-              data-testid="google-signin-btn"
-              onClick={signin}
-              className="w-full mt-6 min-h-[54px] rounded-2xl bg-[hsl(var(--primary))] text-white hover:bg-[hsl(var(--primary))]/90 text-base font-semibold shadow-md"
-            >
-              <GoogleLogo size={22} weight="bold" className="mr-2"/>
-              {t("google_signin")}
-            </Button>
-
-            <button
-              data-testid="lang-switch-btn"
-              onClick={() => nav("/")}
-              className="mt-4 w-full text-xs text-muted-foreground hover:text-foreground hover:underline"
-            >
-              {lang === "kn" ? "ಭಾಷೆ ಬದಲಾಯಿಸಿ" : "Change language"}
-            </button>
-          </div>
-
-          <div className="mt-8 space-y-3 text-sm">
-            <FeatureRow txt={lang === "kn" ? "ಸಂಪೂರ್ಣ ಉಚಿತ · ಎಲ್ಲಾ ವೈಶಿಷ್ಟ್ಯಗಳು" : "Completely free · All features included"} />
-            <FeatureRow txt={lang === "kn" ? "ಡೇಟಾ ಕ್ಲೌಡ್‌ನಲ್ಲಿ ಸಂಗ್ರಹ" : "Data saved to cloud"} />
-            <FeatureRow txt={lang === "kn" ? "PDF ವರದಿಗಳು" : "PDF reports"} />
-          </div>
-        </div>
-      </div>
+      )}
+      {prefix && <span className="text-sm text-[hsl(220_15%_25%)]">{prefix}</span>}
+      <input
+        {...props}
+        className="flex-1 min-w-0 bg-transparent outline-none text-[15px] text-[hsl(220_15%_15%)] placeholder:text-[hsl(220_8%_60%)]"
+      />
     </div>
   );
 }
 
-function FeatureRow({ txt }) {
+function PasswordField({ value, onChange, placeholder, testid }) {
+  const [show, setShow] = useState(false);
   return (
-    <div className="flex items-center gap-3">
-      <div className="h-2 w-2 rounded-full bg-[hsl(var(--primary))]"/>
-      <span>{txt}</span>
+    <div className="flex items-center gap-2 rounded-xl border border-[hsl(28_45%_88%)] bg-white px-3 h-12">
+      <div className="w-8 h-8 rounded-full bg-[hsl(30_100%_95%)] grid place-items-center shrink-0">
+        <Lock size={16} className="text-[hsl(20_85%_55%)]"/>
+      </div>
+      <input
+        data-testid={testid}
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className="flex-1 min-w-0 bg-transparent outline-none text-[15px] text-[hsl(220_15%_15%)] placeholder:text-[hsl(220_8%_60%)]"
+      />
+      <button type="button" onClick={() => setShow(s => !s)}
+              data-testid={`${testid}-toggle`}
+              className="p-1 text-[hsl(220_10%_45%)]">
+        {show ? <EyeSlash size={18}/> : <Eye size={18}/>}
+      </button>
+    </div>
+  );
+}
+
+function PrimaryButton({ children, loading, testid, ...props }) {
+  return (
+    <button
+      data-testid={testid}
+      disabled={loading}
+      {...props}
+      className="w-full h-12 rounded-2xl text-white font-semibold text-[15px] inline-flex items-center justify-center gap-2 shadow-[0_8px_20px_-6px_rgba(230,120,20,0.55)] active:scale-[0.995] transition"
+      style={{
+        background: "linear-gradient(180deg, hsl(30 95% 55%) 0%, hsl(22 85% 50%) 100%)",
+        opacity: loading ? 0.75 : 1,
+      }}
+    >
+      {children}
+      <ArrowRight size={16} weight="bold"/>
+    </button>
+  );
+}
+
+function Label({ children }) {
+  return <div className="text-[13px] font-semibold text-[hsl(220_15%_25%)] mb-1.5">{children}</div>;
+}
+
+export default function Login() {
+  const { refresh } = useApp();
+  const nav = useNavigate();
+  const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+  const [mode, setMode] = useState(MODES.LOGIN);
+  const [busy, setBusy] = useState(false);
+
+  // Consolidated form state (per-mode fields are cleared on switch).
+  const [f, setF] = useState({});
+  const upd = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  const swap = (next) => { setF({}); setMode(next); };
+
+  const errMsg = (e, fallback = "Something went wrong. Please try again.") =>
+    e?.response?.data?.detail || fallback;
+
+  // -------- handlers --------
+  const doLogin = async () => {
+    setBusy(true);
+    try {
+      const { data } = await axios.post(`${API}/auth/login`,
+        { mobile: f.mobile, password: f.password });
+      setAuthToken(data.token);
+      await refresh();
+      nav("/dashboard");
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  };
+
+  const doRegister = async () => {
+    if (!f.name?.trim()) return toast.error("Enter your name");
+    if ((f.password || "").length < 6) return toast.error("Password must be at least 6 characters");
+    if (f.password !== f.confirm_password) return toast.error("Passwords do not match");
+    setBusy(true);
+    try {
+      const { data } = await axios.post(`${API}/auth/register`, {
+        name: f.name.trim(), mobile: f.mobile,
+        password: f.password, confirm_password: f.confirm_password,
+      });
+      setAuthToken(data.token);
+      toast.success("Account created");
+      await refresh();
+      nav("/dashboard");
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  };
+
+  const doForgotSend = async () => {
+    setBusy(true);
+    try {
+      const { data } = await axios.post(`${API}/auth/forgot-password`,
+        { mobile: f.mobile });
+      // Auto-populate the reset code as required by the spec.
+      upd("reset_code", data.reset_code);
+      upd("_stage", "reset");
+      toast.success("Reset code generated");
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  };
+
+  const doForgotReset = async () => {
+    if ((f.new_password || "").length < 6) return toast.error("Password must be at least 6 characters");
+    if (f.new_password !== f.confirm_password) return toast.error("Passwords do not match");
+    setBusy(true);
+    try {
+      await axios.post(`${API}/auth/reset-password`, {
+        mobile: f.mobile, reset_code: f.reset_code,
+        new_password: f.new_password, confirm_password: f.confirm_password,
+      });
+      toast.success("Password reset. Please log in with your new password.");
+      swap(MODES.LOGIN);
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  };
+
+  const doRecover = async () => {
+    if (f.new_mobile !== f.confirm_new_mobile) return toast.error("New mobile numbers do not match");
+    setBusy(true);
+    try {
+      const { data } = await axios.post(`${API}/auth/change-mobile`, {
+        old_mobile: f.old_mobile, old_password: f.old_password,
+        new_mobile: f.new_mobile, confirm_new_mobile: f.confirm_new_mobile,
+      });
+      setAuthToken(data.token);
+      toast.success("Mobile number updated. All your data is intact.");
+      await refresh();
+      nav("/dashboard");
+    } catch (e) { toast.error(errMsg(e)); }
+    finally { setBusy(false); }
+  };
+
+  // -------- shared header --------
+  const Header = ({ title, subtitle }) => (
+    <div className="text-center pt-6 pb-4">
+      <div className="mx-auto w-16 h-16 rounded-2xl grid place-items-center shadow-[0_10px_24px_-8px_rgba(230,120,20,0.55)] mb-3"
+           style={{ background: "linear-gradient(180deg, hsl(30 95% 55%) 0%, hsl(22 85% 50%) 100%)" }}>
+        <BookOpen size={30} weight="fill" className="text-white"/>
+      </div>
+      <div className="text-[26px] font-bold text-[hsl(220_18%_15%)] leading-tight">Lekka Patra</div>
+      <div className="text-[12px] text-[hsl(220_10%_45%)] mt-0.5">
+        ಲೆಕ್ಕ ಪತ್ರ · Simple Ledger &amp; Accounts
+      </div>
+      <div className="mt-4 text-[19px] font-bold text-[hsl(220_18%_15%)]">{title}</div>
+      {subtitle && <div className="text-[12.5px] text-[hsl(220_10%_45%)] mt-1">{subtitle}</div>}
+    </div>
+  );
+
+  // -------- content per mode --------
+  let content = null;
+
+  if (mode === MODES.LOGIN) {
+    content = (
+      <>
+        <Header title="Welcome Back" subtitle="Sign in to manage your daily ledger & accounts"/>
+        <div className="space-y-4 bg-white rounded-2xl border border-[hsl(28_35%_92%)] p-4 shadow-[0_2px_12px_-4px_rgba(30,20,10,0.08)]">
+          <div>
+            <Label>Mobile Number</Label>
+            <TextField icon={Phone} prefix="+91"
+              inputMode="numeric" data-testid="login-mobile"
+              value={f.mobile || ""} onChange={(e) => upd("mobile", e.target.value)}
+              placeholder="9876543210"/>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <Label>Password</Label>
+              <button className="text-[12px] font-semibold text-[hsl(20_85%_50%)]"
+                      onClick={() => swap(MODES.FORGOT)} data-testid="login-forgot-link">
+                Forgot Password?
+              </button>
+            </div>
+            <PasswordField testid="login-password"
+              value={f.password || ""} onChange={(e) => upd("password", e.target.value)}
+              placeholder="••••••••"/>
+          </div>
+          <PrimaryButton testid="login-btn" onClick={doLogin} loading={busy}>Login</PrimaryButton>
+          <div className="text-center text-[12.5px] text-[hsl(220_10%_45%)] pt-1">
+            <button data-testid="login-recover-link"
+              onClick={() => swap(MODES.RECOVER)} className="underline underline-offset-2 mr-3">
+              Account Recovery
+            </button>
+            <span className="text-[hsl(220_8%_65%)]">·</span>
+            <button data-testid="login-create-link"
+              onClick={() => swap(MODES.REGISTER)} className="ml-3 font-semibold text-[hsl(20_85%_50%)]">
+              Create Account
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  } else if (mode === MODES.REGISTER) {
+    content = (
+      <>
+        <Header title="Create Account" subtitle="A few details and you're ready to go"/>
+        <div className="space-y-3 bg-white rounded-2xl border border-[hsl(28_35%_92%)] p-4 shadow-[0_2px_12px_-4px_rgba(30,20,10,0.08)]">
+          <div>
+            <Label>Name</Label>
+            <TextField icon={User} data-testid="reg-name"
+              value={f.name || ""} onChange={(e) => upd("name", e.target.value)}
+              placeholder="Your name"/>
+          </div>
+          <div>
+            <Label>Mobile Number</Label>
+            <TextField icon={Phone} prefix="+91" inputMode="numeric" data-testid="reg-mobile"
+              value={f.mobile || ""} onChange={(e) => upd("mobile", e.target.value)}
+              placeholder="9876543210"/>
+          </div>
+          <div>
+            <Label>Create Password (min 6)</Label>
+            <PasswordField testid="reg-password"
+              value={f.password || ""} onChange={(e) => upd("password", e.target.value)}
+              placeholder="••••••••"/>
+          </div>
+          <div>
+            <Label>Confirm Password</Label>
+            <PasswordField testid="reg-confirm"
+              value={f.confirm_password || ""} onChange={(e) => upd("confirm_password", e.target.value)}
+              placeholder="••••••••"/>
+          </div>
+          <PrimaryButton testid="reg-btn" onClick={doRegister} loading={busy}>Create Account</PrimaryButton>
+          <div className="text-center text-[12.5px] text-[hsl(220_10%_45%)] pt-1">
+            Already have an account?{" "}
+            <button data-testid="reg-back-link" onClick={() => swap(MODES.LOGIN)}
+                    className="font-semibold text-[hsl(20_85%_50%)]">Login</button>
+          </div>
+        </div>
+      </>
+    );
+  } else if (mode === MODES.FORGOT) {
+    const stage = f._stage || "request";
+    content = (
+      <>
+        <Header title="Forgot Password" subtitle="We'll generate a reset code you can use here"/>
+        <div className="space-y-3 bg-white rounded-2xl border border-[hsl(28_35%_92%)] p-4 shadow-[0_2px_12px_-4px_rgba(30,20,10,0.08)]">
+          <div>
+            <Label>Mobile Number</Label>
+            <TextField icon={Phone} prefix="+91" inputMode="numeric" data-testid="fp-mobile"
+              value={f.mobile || ""} onChange={(e) => upd("mobile", e.target.value)}
+              placeholder="9876543210" disabled={stage === "reset"}/>
+          </div>
+          {stage === "reset" && (
+            <>
+              <div>
+                <Label>Reset Code</Label>
+                <TextField icon={Lock} data-testid="fp-code"
+                  value={f.reset_code || ""} onChange={(e) => upd("reset_code", e.target.value)}
+                  placeholder="6-digit code"/>
+                <div className="text-[11px] text-[hsl(20_75%_45%)] mt-1">
+                  Code was auto-filled. Valid for 5 minutes.
+                </div>
+              </div>
+              <div>
+                <Label>New Password (min 6)</Label>
+                <PasswordField testid="fp-new"
+                  value={f.new_password || ""} onChange={(e) => upd("new_password", e.target.value)}
+                  placeholder="••••••••"/>
+              </div>
+              <div>
+                <Label>Confirm New Password</Label>
+                <PasswordField testid="fp-confirm"
+                  value={f.confirm_password || ""} onChange={(e) => upd("confirm_password", e.target.value)}
+                  placeholder="••••••••"/>
+              </div>
+            </>
+          )}
+          {stage === "request" ? (
+            <PrimaryButton testid="fp-send-btn" onClick={doForgotSend} loading={busy}>
+              Get Reset Code
+            </PrimaryButton>
+          ) : (
+            <PrimaryButton testid="fp-reset-btn" onClick={doForgotReset} loading={busy}>
+              Reset Password
+            </PrimaryButton>
+          )}
+          <button data-testid="fp-back-link" onClick={() => swap(MODES.LOGIN)}
+                  className="w-full text-center text-[12.5px] text-[hsl(220_10%_45%)] pt-1 inline-flex items-center justify-center gap-1">
+            <ArrowLeft size={13}/> Back to Login
+          </button>
+        </div>
+      </>
+    );
+  } else if (mode === MODES.RECOVER) {
+    content = (
+      <>
+        <Header title="Account Recovery" subtitle="Change the mobile number linked to your account"/>
+        <div className="space-y-3 bg-white rounded-2xl border border-[hsl(28_35%_92%)] p-4 shadow-[0_2px_12px_-4px_rgba(30,20,10,0.08)]">
+          <div>
+            <Label>Old Mobile Number</Label>
+            <TextField icon={Phone} prefix="+91" inputMode="numeric" data-testid="rec-old-mobile"
+              value={f.old_mobile || ""} onChange={(e) => upd("old_mobile", e.target.value)}
+              placeholder="9876543210"/>
+          </div>
+          <div>
+            <Label>Old Password</Label>
+            <PasswordField testid="rec-old-password"
+              value={f.old_password || ""} onChange={(e) => upd("old_password", e.target.value)}
+              placeholder="••••••••"/>
+          </div>
+          <div>
+            <Label>New Mobile Number</Label>
+            <TextField icon={Phone} prefix="+91" inputMode="numeric" data-testid="rec-new-mobile"
+              value={f.new_mobile || ""} onChange={(e) => upd("new_mobile", e.target.value)}
+              placeholder="8765432109"/>
+          </div>
+          <div>
+            <Label>Confirm New Mobile Number</Label>
+            <TextField icon={Phone} prefix="+91" inputMode="numeric" data-testid="rec-confirm-mobile"
+              value={f.confirm_new_mobile || ""} onChange={(e) => upd("confirm_new_mobile", e.target.value)}
+              placeholder="8765432109"/>
+          </div>
+          <PrimaryButton testid="rec-btn" onClick={doRecover} loading={busy}>Change Mobile Number</PrimaryButton>
+          <button data-testid="rec-back-link" onClick={() => swap(MODES.LOGIN)}
+                  className="w-full text-center text-[12.5px] text-[hsl(220_10%_45%)] pt-1 inline-flex items-center justify-center gap-1">
+            <ArrowLeft size={13}/> Back to Login
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div
+      className="min-h-screen w-full"
+      style={{
+        background: "linear-gradient(180deg, hsl(30 100% 96%) 0%, hsl(20 55% 94%) 100%)",
+      }}
+      data-testid="auth-screen"
+    >
+      <div className="max-w-md mx-auto px-5 pb-10">
+        {content}
+      </div>
     </div>
   );
 }
