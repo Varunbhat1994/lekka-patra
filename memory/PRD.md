@@ -63,6 +63,8 @@ Production-ready, mobile-responsive web app for agriculturists to track field la
 
 
 
+- **[2026-02-18] Branch consolidation — `auth-login-clean`:** New branch `auth-login-clean` created from `online-only-apk` (base HEAD `93661eb`). Cherry-picked native-auth commits `f1dcd78` (Google OAuth → mobile+password auth) and `c3c1e1a` (orange → green accents) cleanly (auto-merges only, no conflicts). Verified: no `frontend/src/offline/*` directory, no `frontend/public/service-worker.js`, and no `serviceWorker.register` or `offline/*` imports anywhere in `frontend/src/`. Backend + frontend services restart clean. Smoke-tested against `$REACT_APP_BACKEND_URL`: `POST /api/auth/register` and `POST /api/auth/login` both return `ok:true` with valid bearer token and access payload. Language chooser + green branding render correctly. Smoke-test user (`919999900001`) deleted from DB post-verification. Branch tree: `auth-login-clean` HEAD `0c3dbed` sits on top of `93661eb`.
+
 ## Backlog (P1/P2)
 - **P1** Real SMS OTP (Firebase Phone Auth once user upgrades to Blaze, or MSG91/Twilio fallback)
 - **P1** Razorpay Webhook Configuration (RAZORPAY_WEBHOOK_SECRET) for out-of-band capture
