@@ -68,11 +68,15 @@ async def _touch_last_active(user: dict) -> None:
 
 
 async def get_current_user(request: Request) -> dict:
-    token = request.cookies.get("session_token")
+    # Prefer the Bearer header (native-auth source of truth on this branch)
+    # over any `session_token` cookie the browser may still be carrying from
+    # the legacy Google-OAuth build. If we let a stale cookie win, devices
+    # that visited an earlier deploy of the app end up 401'd on every
+    # authenticated call even after a successful native login.
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else None
     if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
+        token = request.cookies.get("session_token")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     sess = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})

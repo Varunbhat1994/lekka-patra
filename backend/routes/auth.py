@@ -150,7 +150,7 @@ class LangIn(BaseModel):
 # ---------------- register ----------------
 
 @router.post("/auth/register")
-async def register(body: RegisterIn):
+async def register(body: RegisterIn, response: Response):
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "Name required")
@@ -175,6 +175,10 @@ async def register(body: RegisterIn):
     })
     await _promote_owner_if_needed(user_id, mobile=mobile, email=None)
     token = await _issue_session(user_id)
+    # Clear any legacy `session_token` cookie left over from the old
+    # Google-OAuth build. Without this, browsers keep sending it and
+    # get_current_user 401s despite a valid Bearer token.
+    response.delete_cookie("session_token", path="/")
     user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     return {"ok": True, "token": token, "user": _user_public(user)}
 
@@ -182,7 +186,7 @@ async def register(body: RegisterIn):
 # ---------------- login ----------------
 
 @router.post("/auth/login")
-async def login(body: LoginIn):
+async def login(body: LoginIn, response: Response):
     mobile = _normalize_10digit(body.mobile)
     user = await db.users.find_one({"mobile": mobile}, {"_id": 0})
     # Uniform error message for both "no such user" and "wrong password"
@@ -193,6 +197,8 @@ async def login(body: LoginIn):
     if not _verify(body.password, user["password_hash"]):
         raise generic
     token = await _issue_session(user["user_id"])
+    # Clear any legacy `session_token` cookie (see /register).
+    response.delete_cookie("session_token", path="/")
     return {"ok": True, "token": token, "user": _user_public(user)}
 
 
@@ -200,11 +206,12 @@ async def login(body: LoginIn):
 
 @router.post("/auth/logout")
 async def logout(request: Request, response: Response):
-    token = request.cookies.get("session_token")
+    # Same precedence as get_current_user: Bearer wins so the correct
+    # session is revoked when a stale legacy cookie is also present.
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else None
     if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
+        token = request.cookies.get("session_token")
     if token:
         await db.user_sessions.delete_one({"session_token": token})
     response.delete_cookie("session_token", path="/")
@@ -284,7 +291,7 @@ async def reset_password(body: ResetIn):
 # ---------------- change mobile / account recovery ----------------
 
 @router.post("/auth/change-mobile")
-async def change_mobile(body: ChangeMobileIn):
+async def change_mobile(body: ChangeMobileIn, response: Response):
     if body.new_mobile != body.confirm_new_mobile and \
        _normalize_10digit(body.new_mobile) != _normalize_10digit(body.confirm_new_mobile):
         raise HTTPException(400, "New mobile numbers do not match")
@@ -312,6 +319,8 @@ async def change_mobile(body: ChangeMobileIn):
     # attribute changed) and issues a fresh token so the flow ends
     # authenticated on the calling device.
     token = await _issue_session(user["user_id"])
+    # Clear any legacy `session_token` cookie (see /register).
+    response.delete_cookie("session_token", path="/")
     updated = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     return {"ok": True, "token": token, "user": _user_public(updated)}
 
